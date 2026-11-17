@@ -1,0 +1,12 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations"><ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration><ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration></ItemGroup>
+  <PropertyGroup Label="Globals"><ProjectGuid>{8824A69A-5C5C-473D-9B9A-F955B8E9A764}</ProjectGuid><RootNamespace>ElkaMultiLaunch</RootNamespace><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries><UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries><CharacterSet>Unicode</CharacterSet></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ItemDefinitionGroup><Link><SubSystem>Windows</SubSystem></Link><Manifest><AdditionalManifestFiles>assets\app.manifest</AdditionalManifestFiles></Manifest></ItemDefinitionGroup>
+  <ItemGroup><ClCompile Include="src\Core.cpp"/><ClCompile Include="src\Platform.cpp"/><ClCompile Include="src\Ui.cpp"/><ClCompile Include="src\Main.cpp"/></ItemGroup>
+  <ItemGroup><ClInclude Include="src\Core.h"/><ClInclude Include="src\Platform.h"/><ClInclude Include="src\Ui.h"/></ItemGroup>
+  <ItemGroup><ResourceCompile Include="assets\app.rc"/></ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
