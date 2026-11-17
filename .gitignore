@@ -1,0 +1,6 @@
+.vs/
+build/
+artifacts/
+*.user
+*.suo
+HANDOFF.md
