@@ -5,8 +5,8 @@
   <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries><UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries><CharacterSet>Unicode</CharacterSet></PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ItemDefinitionGroup><Link><SubSystem>Windows</SubSystem><AdditionalOptions Condition="'$(Configuration)'=='Release'">/PDBALTPATH:Elka.MultiLaunch.pdb %(AdditionalOptions)</AdditionalOptions></Link><Manifest><AdditionalManifestFiles>assets\app.manifest</AdditionalManifestFiles></Manifest></ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="src\Core.cpp"/><ClCompile Include="src\Platform.cpp"/><ClCompile Include="src\Ui.cpp"/><ClCompile Include="src\Main.cpp"/></ItemGroup>
-  <ItemGroup><ClInclude Include="src\Core.h"/><ClInclude Include="src\Platform.h"/><ClInclude Include="src\Ui.h"/></ItemGroup>
+  <ItemGroup><ClCompile Include="src\Core.cpp"/><ClCompile Include="src\Platform.cpp"/><ClCompile Include="src\Ui.cpp"/><ClCompile Include="src\Main.cpp"/><ClCompile Include="src\Games.cpp"/><ClCompile Include="src\GameLauncher.cpp"/><ClCompile Include="src\Updates.cpp"/></ItemGroup>
+  <ItemGroup><ClInclude Include="src\Core.h"/><ClInclude Include="src\Platform.h"/><ClInclude Include="src\Ui.h"/><ClInclude Include="src\Games.h"/><ClInclude Include="src\GameLauncher.h"/><ClInclude Include="src\Updates.h"/></ItemGroup>
   <ItemGroup><ResourceCompile Include="assets\app.rc"/></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

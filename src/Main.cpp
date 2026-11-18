@@ -1,5 +1,8 @@
 #include "Ui.h"
 #include "Platform.h"
+#include "GameLauncher.h"
+#include "Updates.h"
+#include <thread>
 #include <shellapi.h>
 #include <commctrl.h>
 #include <sddl.h>
@@ -12,7 +15,18 @@
 
 namespace {
 constexpr UINT ActivityMessage=WM_APP+11,StatusMessage=WM_APP+12,TrayMessage=WM_APP+13;
-constexpr int Profiles=100,History=101,SettingsPage=102,Hide=103,ProfileList=110,AddProfile=111,RemoveProfile=112,Name=120,Enabled=121,Trigger=122,TriggerProcess=123,TriggerExe=124,TargetList=130,AddProcess=131,AddExe=132,EditTarget=133,RemoveTarget=134,Save=140,Pause=141,Passive=150,Startup=151,Elevate=152,Admin=153,HistoryList=160;
+constexpr UINT UpdateMessage=WM_APP+14;
+constexpr int CheckUpdate=105;
+class UpdateWindow:public ui::Window {
+    elka::UpdateResult update;
+public:
+    explicit UpdateWindow(elka::UpdateResult r):update(std::move(r)){}
+    void Created()override{Button(L"Close",IDCANCEL);if(update.available)Button(L"Open downloads",IDOK,true);}
+    void Layout(int w,int h)override{Place(IDCANCEL,w-136,h-54,112,34);if(update.available)Place(IDOK,w-308,h-54,160,34);}
+    void Paint(HDC dc,RECT r)override{auto text=!update.error.empty()?update.error:update.available?L"A newer version is available: "+update.version+L"\n\nCurrent version: "+elka::AppVersion+L"\nOpen GitHub to download the installer or portable ZIP.":L"You are up to date.\n\nCurrent version: "+std::wstring(elka::AppVersion)+L"\nDevelopment prereleases are included in this check.";r.left+=S(24);r.right-=S(24);r.top+=S(20);r.bottom-=S(75);TextAt(dc,text,r,ui::Text,font,DT_LEFT|DT_WORDBREAK);}
+    void Command(int id,int)override{if(id==IDOK&&update.available){ShellExecuteW(hwnd,L"open",update.url.c_str(),nullptr,nullptr,SW_SHOWNORMAL);End(IDOK);}if(id==IDCANCEL)End(0);}
+};
+constexpr int Profiles=100,History=101,SettingsPage=102,Hide=103,GamesButton=104,ProfileList=110,AddProfile=111,RemoveProfile=112,Name=120,Enabled=121,Trigger=122,TriggerProcess=123,TriggerExe=124,TargetList=130,AddProcess=131,AddExe=132,EditTarget=133,RemoveTarget=134,AddGame=135,Save=140,Pause=141,Passive=150,Startup=151,Elevate=152,Admin=153,UseLauncher=154,LauncherLayout=155,LauncherLibrary=156,ShowLauncher=157,HistoryList=160;
 class TargetWindow:public ui::Window {
 public:
     elka::Target target;
@@ -25,13 +39,18 @@ class MainWindow:public ui::Window {
     elka::Settings draft,saved;std::wstring directory,loadError,status=L"Starting…";std::unique_ptr<elka::Monitor> monitor;
     int selected=-1,page=Profiles;bool loading=false,dirty=false,paused=false,startup=false,trayAdded=false,isolated=false;UINT taskbarCreated=0;
     std::deque<std::wstring> history;
-    const std::vector<int> profileControls{ProfileList,AddProfile,RemoveProfile,Name,Enabled,Trigger,TriggerProcess,TriggerExe,TargetList,AddProcess,AddExe,EditTarget,RemoveTarget,200,201,202,203,204};
-    const std::vector<int> settingsControls{Passive,Startup,Elevate,Admin,210,211,212,213,214,215};
+    std::unique_ptr<elka::GameLauncher> launcher;
+    std::thread updateThread;elka::UpdateResult updateResult;bool updating=false;
+    const std::vector<int> profileControls{ProfileList,AddProfile,RemoveProfile,Name,Enabled,Trigger,TriggerProcess,TriggerExe,TargetList,AddProcess,AddExe,AddGame,EditTarget,RemoveTarget,200,201,202,203,204};
+    const std::vector<int> settingsControls{Passive,Startup,Elevate,Admin,UseLauncher,LauncherLayout,LauncherLibrary,ShowLauncher,210,211,212,213,214};
 public:
     explicit MainWindow(std::wstring dir,bool custom):directory(std::move(dir)),isolated(custom){elka::LoadSettings(directory,draft,loadError);saved=draft;startup=isolated?false:elka::StartupEnabled();}
+    ~MainWindow(){if(updateThread.joinable())updateThread.join();}
     void Created()override{
         taskbarCreated=RegisterWindowMessageW(L"TaskbarCreated");
         Button(L"Profiles",Profiles);Button(L"History",History);Button(L"Settings",SettingsPage);Button(L"Hide to tray",Hide);
+        Button(L"Games",GamesButton);Button(L"+ Game",AddGame);
+        Button(L"Check updates",CheckUpdate);
         List(ProfileList,58);Button(L"+ New profile",AddProfile);Button(L"Remove",RemoveProfile);
         Label(L"PROFILE NAME",200);Edit(L"",Name);Check(L"Enabled",Enabled,true);
         Label(L"01   WHEN THIS APPLICATION RUNS",201);Edit(L"",Trigger,true);Button(L"From processes",TriggerProcess);Button(L"Browse EXE",TriggerExe);
@@ -47,7 +66,8 @@ public:
         Label(L"Administrator + Windows startup uses Task Scheduler with highest privileges for your account.\nWithout administrator mode, startup uses the normal Windows startup entry.",213);
         Button(L"Restart as administrator",Elevate);
         Label(std::wstring(elka::IsAdmin()?L"This session is running as administrator. ":L"This session is running normally. ")+L"Elevation changes apply on the next launch.\nApplications launched by an elevated Multi-Launch also receive administrator rights.",214);
-        Label(isolated?L"Isolated test data · Windows startup is disabled in this session.":L"Settings and recent history are kept in your Local AppData folder. No network connection is used.",215);
+        Check(L"Use as game launcher · floating store tiles and favorites",UseLauncher,false);
+        Button(L"Launcher layout",LauncherLayout);Button(L"Installed games",LauncherLibrary);Button(L"Show launcher",ShowLauncher);
         if(isolated)EnableWindow(Get(Startup),FALSE);
         ReadHistory();for(const auto& line:history)SendMessageW(Get(HistoryList),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(line.c_str()));
         ReloadProfiles();SelectProfile(draft.profiles.empty()?-1:0);SwitchPage(Profiles);
@@ -55,21 +75,25 @@ public:
         auto post=[this](UINT message,const std::wstring& text){auto p=new std::wstring(text);if(!PostMessageW(hwnd,message,0,reinterpret_cast<LPARAM>(p)))delete p;};
         monitor=std::make_unique<elka::Monitor>([post](const auto& text){post(ActivityMessage,text);},[post](const auto& text){post(StatusMessage,text);});
         monitor->Configure(saved,false);
+        launcher=std::make_unique<elka::GameLauncher>(hwnd,directory,[this](const auto& text){Log(text);});Checked(UseLauncher,launcher->Enabled());
         if(!loadError.empty()){Log(loadError);ui::Notice(hwnd,L"Settings need attention",loadError);}
     }
     void Layout(int w,int h)override{
         Place(Profiles,w-462,29,94,34);Place(History,w-358,29,90,34);Place(SettingsPage,w-258,29,94,34);Place(Hide,w-154,29,126,34);
+        Place(GamesButton,w-560,29,88,34);
+        Place(CheckUpdate,w-690,29,120,34);
         Place(ProfileList,24,126,224,h-254);Place(AddProfile,24,h-112,138,34);Place(RemoveProfile,172,h-112,76,34);
         int x=276,cw=w-x-28;
         Place(200,x,122,cw-132,20);Place(Name,x,150,cw-144,30);Place(Enabled,w-152,147,124,34);
         Place(203,x,192,cw,24);Place(201,x,236,cw,24);Place(Trigger,x,266,cw,30);Place(TriggerProcess,x,310,150,34);Place(TriggerExe,x+162,310,128,34);
         Place(202,x,374,cw,24);Place(TargetList,x,406,cw,h-566);
         Place(AddProcess,x,h-148,158,34);Place(AddExe,x+170,h-148,140,34);Place(EditTarget,w-202,h-148,76,34);Place(RemoveTarget,w-114,h-148,86,34);
+        Place(AddGame,x+320,h-148,90,34);
         Place(204,x,h-100,cw,36);
         Place(Save,w-174,h-50,146,34);Place(Pause,w-278,h-50,92,34);
         Place(HistoryList,28,126,w-56,h-204);
         Place(210,36,128,w-72,24);Place(Passive,36,163,w-72,36);Place(211,66,212,w-100,52);Place(212,66,280,w-100,52);
-        Place(Admin,36,330,w-72,36);Place(Startup,36,376,w-72,36);Place(213,66,426,w-100,54);Place(Elevate,36,496,224,36);Place(214,36,552,w-72,50);Place(215,36,620,w-72,44);
+        Place(Admin,36,330,w-72,36);Place(Startup,36,376,w-72,36);Place(213,66,426,w-100,54);Place(Elevate,36,496,224,36);Place(214,36,546,w-72,50);Place(UseLauncher,36,605,w-72,36);Place(LauncherLayout,36,650,160,34);Place(LauncherLibrary,208,650,160,34);Place(ShowLauncher,380,650,150,34);
     }
     void Paint(HDC dc,RECT r)override{
         int w=MulDiv(r.right,96,dpi),h=MulDiv(r.bottom,96,dpi);
@@ -95,7 +119,7 @@ public:
         if(!elka::SaveSettings(directory,draft,error)){ui::Notice(hwnd,L"Could not save",error);return false;}
         bool startupOkay=true;
         if(updateStartup&&!isolated&&(Checked(Startup)!=startup||(Checked(Startup)&&draft.runAsAdmin!=saved.runAsAdmin))){startupOkay=elka::SetStartup(Checked(Startup),draft.runAsAdmin,error);if(!startupOkay){Log(error);ui::Notice(hwnd,L"Startup needs attention",L"Your profiles were saved, but Windows startup could not be updated.\n\n"+error);}startup=elka::StartupEnabled();if(startupOkay)Checked(Startup,startup);}
-        saved=draft;dirty=!startupOkay;ReloadProfiles();monitor->Configure(saved,paused);Log(L"Settings saved · "+std::to_wstring(saved.profiles.size())+L" profiles");InvalidateRect(hwnd,nullptr,FALSE);return startupOkay;
+        saved=draft;if(launcher&&Checked(UseLauncher)!=launcher->Enabled()&&!launcher->Enable(Checked(UseLauncher)))startupOkay=false;dirty=!startupOkay;ReloadProfiles();monitor->Configure(saved,paused);Log(L"Settings saved · "+std::to_wstring(saved.profiles.size())+L" profiles");InvalidateRect(hwnd,nullptr,FALSE);return startupOkay;
     }
     void RestartAdmin(){
         if(elka::IsAdmin()){ui::Notice(hwnd,L"Administrator",L"Multi-Launch is already running as administrator.");return;}
@@ -106,6 +130,8 @@ public:
         if(ShellExecuteExW(&info))Exit();else if(GetLastError()!=ERROR_CANCELLED)ui::Notice(hwnd,L"Could not restart",elka::ErrorText(GetLastError()));
     }
     void Command(int id,int code)override{
+        if(id==CheckUpdate){if(updating)return;if(updateThread.joinable())updateThread.join();updating=true;EnableWindow(Get(CheckUpdate),FALSE);Value(CheckUpdate,L"Checking…");updateThread=std::thread([this]{updateResult=elka::CheckUpdates();PostMessageW(hwnd,UpdateMessage,0,0);});return;}
+        if(id==UseLauncher){MarkDirty();return;}if(id==LauncherLayout){launcher->Options(hwnd);return;}if(id==GamesButton||id==LauncherLibrary){launcher->Library(hwnd);return;}if(id==ShowLauncher){if(launcher->Enabled())launcher->Show();else ui::Notice(hwnd,L"Game launcher",L"Select Use as game launcher, then Save changes to enable the floating tiles.");return;}
         if(id==Profiles||id==History||id==SettingsPage){Capture();SwitchPage(id);return;}
         if(id==Name&&code==EN_CHANGE){MarkDirty();return;}
         if(id==ProfileList&&code==LBN_SELCHANGE){Capture();auto index=static_cast<int>(SendMessageW(Get(ProfileList),LB_GETCURSEL,0,0));ReloadProfiles();SelectProfile(index);return;}
@@ -113,6 +139,7 @@ public:
         if(id==Hide){Close();return;}if(id==Save){SaveConfig(true);return;}if(id==Pause){paused=!paused;Value(Pause,paused?L"Resume":L"Pause");monitor->Configure(saved,paused);Log(paused?L"Monitoring paused.":L"Monitoring resumed.");UpdateTray();return;}if(id==Elevate){RestartAdmin();return;}
         if(id==AddProfile){if(draft.profiles.size()>=elka::MaxProfiles)return;Capture();draft.profiles.push_back({elka::NewId(),L"Profile "+std::to_wstring(draft.profiles.size()+1),L"",true,{}});ReloadProfiles();SelectProfile(static_cast<int>(draft.profiles.size()-1));MarkDirty();SetFocus(Get(Name));SendMessageW(Get(Name),EM_SETSEL,0,-1);return;}
         if(selected<0)return;auto& p=draft.profiles[selected];
+        if(id==AddGame){if(p.targets.size()>=elka::MaxTargets)return;auto target=launcher->PickTarget(hwnd);if(target){p.targets.push_back(*target);ReloadTargets();MarkDirty();}return;}
         if(id==RemoveProfile){if(!ui::Notice(hwnd,L"Remove profile",L"Remove '"+p.name+L"' from your profiles? Save changes to apply the removal.",true))return;draft.profiles.erase(draft.profiles.begin()+selected);selected=draft.profiles.empty()?-1:(std::min)(selected,static_cast<int>(draft.profiles.size()-1));ReloadProfiles();SelectProfile(selected);MarkDirty();return;}
         if(id==TriggerProcess||id==TriggerExe){auto path=id==TriggerProcess?ui::PickProcess(hwnd):ui::PickExe(hwnd,p.trigger);if(!path.empty()){p.trigger=path;Value(Trigger,path);if(p.name.rfind(L"Profile ",0)==0){p.name=std::filesystem::path(path).stem().wstring();Value(Name,p.name);ReloadProfiles();}MarkDirty();}return;}
         if(id==AddProcess||id==AddExe){if(p.targets.size()>=elka::MaxTargets)return;auto path=id==AddProcess?ui::PickProcess(hwnd):ui::PickExe(hwnd);if(!path.empty()){TargetWindow editor({path,L"",L"",true});editor.Create(L"Add launch target",690,430,hwnd);if(editor.Modal(hwnd)==IDOK){p.targets.push_back(editor.target);ReloadTargets();MarkDirty();}}return;}
@@ -134,9 +161,10 @@ public:
     void UpdateTray(){NOTIFYICONDATAW n{sizeof(n)};n.hWnd=hwnd;n.uID=1;n.uFlags=NIF_TIP;wcscpy_s(n.szTip,paused?L"Elka Multi-Launch · paused":L"Elka Multi-Launch · monitoring");Shell_NotifyIconW(NIM_MODIFY,&n);}
     void Reveal(){ShowWindow(hwnd,SW_RESTORE);SetForegroundWindow(hwnd);}
     void Close()override{if(trayAdded)ShowWindow(hwnd,SW_HIDE);else{ui::Notice(hwnd,L"Tray unavailable",L"The Windows notification area is unavailable. Multi-Launch will stay visible so you can still control it.");}}
-    void Exit(){if(dirty&&!ui::Notice(hwnd,L"Unsaved changes",L"Exit without saving your latest changes?",true))return;monitor->Stop();NOTIFYICONDATAW n{sizeof(n)};n.hWnd=hwnd;n.uID=1;Shell_NotifyIconW(NIM_DELETE,&n);End(0);PostQuitMessage(0);}
+    void Exit(){if(dirty&&!ui::Notice(hwnd,L"Unsaved changes",L"Exit without saving your latest changes?",true))return;launcher.reset();monitor->Stop();NOTIFYICONDATAW n{sizeof(n)};n.hWnd=hwnd;n.uID=1;Shell_NotifyIconW(NIM_DELETE,&n);End(0);PostQuitMessage(0);}
     LRESULT Message(UINT msg,WPARAM w,LPARAM l,bool& handled)override{
         handled=true;
+        if(msg==UpdateMessage){if(updateThread.joinable())updateThread.join();updating=false;EnableWindow(Get(CheckUpdate),TRUE);Value(CheckUpdate,L"Check updates");UpdateWindow dialog(updateResult);dialog.Create(L"GitHub updates",570,240,hwnd);dialog.Modal(hwnd);return 0;}
         if(msg==ActivityMessage||msg==StatusMessage){std::unique_ptr<std::wstring> text(reinterpret_cast<std::wstring*>(l));if(msg==ActivityMessage)Log(*text);else{status=*text;Log(status);InvalidateRect(hwnd,nullptr,FALSE);}return 0;}
         if(msg==taskbarCreated&&taskbarCreated){AddTray();if(!trayAdded)Reveal();return 0;}
         if(msg==TrayMessage){auto event=LOWORD(l);if(event==WM_LBUTTONDBLCLK||event==NIN_KEYSELECT)Reveal();else if(event==WM_CONTEXTMENU){HMENU menu=CreatePopupMenu();AppendMenuW(menu,MF_OWNERDRAW,1,L"Open Multi-Launch");AppendMenuW(menu,MF_OWNERDRAW,2,paused?L"Resume monitoring":L"Pause monitoring");AppendMenuW(menu,MF_OWNERDRAW,3,L"Exit");auto brush=CreateSolidBrush(ui::Panel);MENUINFO appearance{sizeof(appearance)};appearance.fMask=MIM_BACKGROUND;appearance.hbrBack=brush;SetMenuInfo(menu,&appearance);POINT p{};GetCursorPos(&p);SetForegroundWindow(hwnd);auto item=TrackPopupMenu(menu,TPM_RETURNCMD|TPM_RIGHTBUTTON,p.x,p.y,0,hwnd,nullptr);DestroyMenu(menu);DeleteObject(brush);PostMessageW(hwnd,WM_NULL,0,0);if(item==1)Reveal();if(item==2)Command(Pause,BN_CLICKED);if(item==3)Exit();}return 0;}
@@ -161,7 +189,8 @@ int WINAPI wWinMain(HINSTANCE,HINSTANCE,PWSTR,int){
     HANDLE mutex=CreateMutexW(security?&sa:nullptr,FALSE,mutexName.c_str());if(security)LocalFree(security);
     if(!mutex){ui::Notice(nullptr,L"Elka Multi-Launch",L"Could not create the single-instance lock: "+elka::ErrorText(GetLastError()));CoUninitialize();return 1;}
     DWORD acquired=WaitForSingleObject(mutex,restart?10000:0);
-    if(acquired!=WAIT_OBJECT_0&&acquired!=WAIT_ABANDONED){auto window=FindWindowW(L"Elka.MultiLaunch.Window",L"Elka Multi-Launch");if(window){ShowWindow(window,SW_RESTORE);SetForegroundWindow(window);}CloseHandle(mutex);CoUninitialize();return configureInstall?3:0;}
+    const wchar_t* windowTitle=custom?L"Elka Multi-Launch · Test data":L"Elka Multi-Launch";
+    if(acquired!=WAIT_OBJECT_0&&acquired!=WAIT_ABANDONED){auto window=FindWindowW(L"Elka.MultiLaunch.Window",windowTitle);if(window){ShowWindow(window,SW_RESTORE);SetForegroundWindow(window);}CloseHandle(mutex);CoUninitialize();return configureInstall?3:0;}
     std::wstring startupError;elka::Settings desired;std::wstring settingsError;elka::LoadSettings(directory,desired,settingsError);
     if(configureInstall){
         desired.runAsAdmin=installAdmin;if(!installAdmin)desired.passive=false;
@@ -179,9 +208,9 @@ int WINAPI wWinMain(HINSTANCE,HINSTANCE,PWSTR,int){
     }
     if(startRequest){if(settingsError.empty())elka::SetStartup(startRequest>0,desired.runAsAdmin,startupError);else startupError=settingsError;}
     int result=0;
-    {MainWindow main(directory,custom);if(main.Create(L"Elka Multi-Launch",1120,760,nullptr,true)){
+    {MainWindow main(directory,custom);if(main.Create(windowTitle,1120,760,nullptr,true)){
         if(!startupError.empty())ui::Notice(main.hwnd,L"Startup needs attention",startupError);
-        ShowWindow(main.hwnd,tray?SW_HIDE:SW_SHOW);MSG msg{};while(GetMessageW(&msg,nullptr,0,0)>0){if(!IsDialogMessageW(main.hwnd,&msg)){TranslateMessage(&msg);DispatchMessageW(&msg);}}result=static_cast<int>(msg.wParam);
+        ShowWindow(main.hwnd,tray?SW_HIDE:SW_SHOW);MSG msg{};while(GetMessageW(&msg,nullptr,0,0)>0){HWND root=msg.hwnd?GetAncestor(msg.hwnd,GA_ROOT):main.hwnd;if(!IsDialogMessageW(root,&msg)){TranslateMessage(&msg);DispatchMessageW(&msg);}}result=static_cast<int>(msg.wParam);
     }else result=1;}
     ReleaseMutex(mutex);CloseHandle(mutex);CoUninitialize();return result;
 }

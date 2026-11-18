@@ -1,8 +1,8 @@
 # Elka Multi-Launch
 
-A small, dark-only Windows tray application. One application starts; up to ten companion applications launch automatically. Native C++17 and Win32, with no .NET, WebView, Electron, downloaded runtime, service, driver, or network dependency.
+A small, dark-only Windows tray application with optional floating game-launcher tiles. One application starts; up to ten companion applications launch automatically. Native C++17 and Win32, with no .NET, WebView, Electron, downloaded runtime, service, or driver. Game discovery works locally; GitHub is contacted only when you choose **Check updates**.
 
-**Development release:** [v0.1.0-dev.1 downloads](https://github.com/torment78/Elka.MultiLaunch/releases/tag/v0.1.0-dev.1). Choose the dark installer or the portable ZIP. Development builds are prereleases; a stable release is not available yet. Current source is on the `dev` branch.
+**Development release:** [v0.2.0-dev.1 downloads](https://github.com/torment78/Elka.MultiLaunch/releases/tag/v0.2.0-dev.1). Choose the dark installer or the portable ZIP. Development builds are prereleases; a stable release is not available yet. Current source is on the `dev` branch.
 
 ## Use
 
@@ -15,6 +15,28 @@ A small, dark-only Windows tray application. One application starts; up to ten c
 The trigger is the application you start yourself. Multi-Launch watches for it; it does not start the trigger. A trigger already running when a profile is first enabled also fires the profile. The profile fires once per continuous running session, including multiple simultaneous instances. It rearms after all instances stop. Profile names and target edits do not replay a running trigger; disabling and re-enabling a profile rearms it. Launch loops are rejected when saving. Companion applications are left running when the trigger closes.
 
 Changes take effect on **Save changes**. Closing to tray keeps unsaved edits in the window but the monitor continues using the last saved settings. Pause is temporary and is not saved across restarts.
+
+## Game launcher
+
+1. Open **Settings**, select **Use as game launcher**, and **Save changes**.
+2. Select **Games** at the top, or **Library** on the floating dock. Choose Steam, EA app, or Battle.net to browse installed games. Use the filter to find a title.
+3. Select a game and choose **Favorite** (or double-click its library row). Favorite changes are saved immediately. Click the store's floating tile to unfold its favorites; click a game tile to send its launch request.
+4. Use **Options** on the dock, or **Settings → Launcher layout**, to choose the display, expansion direction, always-on-top behavior, and position lock. Drag the empty part of the dock header to move it.
+5. The drawer's **+** opens the game library. Its arrow cycles the store's own flow direction; the opposite of the dock's main expansion direction is excluded. Drawers wrap on the chosen side, stay inside the monitor's work area, and paginate large favorite collections. Windows' animation preference is respected.
+
+Steam discovery reads `steamapps/libraryfolders.vdf` and installed app manifests across all registered local libraries, including the current nested library format. It obtains the AppID automatically and launches `steam.exe -applaunch <AppID>`. Steam being open never suppresses a game request. Incomplete or missing installations are excluded.
+
+EA discovery reads installed-program records and `__Installer/installerdata.xml`, then passes an `origin2://game/launch?offerIds=...` request to the installed EA launcher. Battle.net discovery reads installed-program records and `Agent/product.db` and uses known product launch codes. Unknown Battle.net products can be added manually with their launcher EXE and arguments. No account tokens, credentials, owned-game web APIs, or SteamCMD login are needed. The store client still handles sign-in, licensing, updates, and launching the game.
+
+**Add manually** supports other EXE-based launchers and custom commands. For a manually added Steam game, entering only its numeric AppID in Arguments fills in `-applaunch` automatically. Remove custom entries with **Remove custom**. An unavailable favorite is retained in settings and appears again when the game is detected on a later refresh.
+
+Use **+ Game** in an existing trigger profile to choose a discovered game as an automatic launch target. The launcher EXE and arguments are filled in, with client-process suppression turned off. To use a game as the trigger, continue selecting the actual game process/EXE.
+
+Discovery runs once when needed and again on **Refresh**. There is no repeating game-library scan or background animation timer. **Hide** hides the dock; **Settings → Show launcher** brings it back. Disable the launcher option and save to return to the process-trigger interface alone.
+
+## GitHub updates
+
+The **Check updates** button checks this repository's published releases, including development prereleases. Versions are compared numerically. A newer release offers **Open downloads** to open its GitHub page; nothing is downloaded or installed automatically. Offline and rate-limit failures are shown explicitly. There are no automatic update checks.
 
 ## Detection and administrator mode
 
@@ -37,6 +59,8 @@ Startup opens the app quietly in the tray. Windows may delay startup. Disable st
 ## Data and history
 
 Settings: `%LOCALAPPDATA%\ElkaSoft\MultiLaunch\settings.elka`. This is a versioned UTF-8 text format with escaped fields. Saves replace the file atomically and retain the previous copy as `settings.elka.bak`. Invalid settings are not partially loaded.
+
+Game favorites, manual entries, launcher enablement, display, position, and drawer preferences are stored separately in `launcher.elka`, with `launcher.elka.bak` retained on save. Existing process profiles are not migrated or replaced by enabling the game launcher.
 
 Recent history: `history.log` in the same folder. It contains at most 200 activity records and shows launches, skipped targets, failures, and settings changes. Arguments are not logged. History uses the computer's local time.
 

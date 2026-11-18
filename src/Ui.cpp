@@ -61,7 +61,7 @@ LRESULT CALLBACK Window::Proc(HWND h,UINT m,WPARAM w,LPARAM l){
     case WM_ERASEBKGND:return 1;
     case WM_PAINT:{PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);RECT r{};GetClientRect(h,&r);FillRect(dc,&r,background);self->Paint(dc,r);EndPaint(h,&ps);return 0;}
     case WM_CTLCOLORSTATIC:case WM_CTLCOLOREDIT:case WM_CTLCOLORLISTBOX:{auto dc=reinterpret_cast<HDC>(w);SetTextColor(dc,Text);SetBkColor(dc,m==WM_CTLCOLORSTATIC?Background:Field);return reinterpret_cast<LRESULT>(m==WM_CTLCOLORSTATIC?background:field);}
-    case WM_DRAWITEM:{auto d=reinterpret_cast<DRAWITEMSTRUCT*>(l);if(d->CtlType!=ODT_BUTTON){self->Item(d);return TRUE;}
+    case WM_DRAWITEM:{auto d=reinterpret_cast<DRAWITEMSTRUCT*>(l);if(d->CtlType!=ODT_BUTTON||GetPropW(d->hwndItem,L"customDraw")){self->Item(d);return TRUE;}
         bool checked=GetPropW(d->hwndItem,L"checked"),isCheck=GetPropW(d->hwndItem,L"check"),accent=GetPropW(d->hwndItem,L"accent"),disabled=(d->itemState&ODS_DISABLED)!=0;
         auto r=d->rcItem;
         // Owner-drawn buttons must paint the entire rectangle first. Otherwise
