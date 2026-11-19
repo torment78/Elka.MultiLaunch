@@ -156,39 +156,61 @@ struct GameLauncher::Impl::Widget:ui::Window {
 };
 struct GameLauncher::Impl::Drawer:ui::Window {
     Impl& app;std::vector<Game> games;games::Placement placement;int store=0;explicit Drawer(Impl&a):app(a){}
+    static constexpr UINT_PTR RevealTimer=1;
+    std::vector<RECT> nodes;ULONGLONG revealStarted=0;bool revealing=false,updatingRegion=false;int layoutWidth=0,layoutHeight=0;
+    void StopReveal(){if(revealing)KillTimer(hwnd,RevealTimer);revealing=false;}
+    void Region(const std::vector<RECT>& surfaces){
+        if(updatingRegion)return;auto region=ui::CreateNodeRegion(surfaces,S(10));if(!region)return;
+        updatingRegion=true;if(!SetWindowRgn(hwnd,region,TRUE))DeleteObject(region);updatingRegion=false;
+    }
+    void FinishReveal(){StopReveal();RECT r{};GetClientRect(hwnd,&r);Layout(MulDiv(r.right,96,dpi),MulDiv(r.bottom,96,dpi));RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN);}
+    void RevealTick(){
+        if(!revealing)return;auto elapsed=(std::min)(GetTickCount64()-revealStarted,ULONGLONG(1500));auto frame=RevealDrawer(nodes,app.state.direction,app.state.groupDirections[store],static_cast<unsigned>(elapsed));
+        if(frame.finished){FinishReveal();return;}Region(frame.nodes);RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN);
+    }
+    void BeginReveal(bool animate){
+        BOOL animations=TRUE;SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION,0,&animations,0);if(!animate||!animations||nodes.empty())return;
+        // Only a short-lived UI timer runs while the drawer unfolds. Node controls
+        // and cached artwork stay at their final size, avoiding per-frame rescaling.
+        revealing=true;revealStarted=GetTickCount64();for(int id:{10,11,12,13,14})Show(id,false);Region({});
+        if(!SetTimer(hwnd,RevealTimer,16,nullptr))FinishReveal();
+    }
     bool Controls()const{return app.state.drawerToolbarVisible[store];}
     int Pages()const{return (std::max)(1,(static_cast<int>(games.size())+placement.capacity-1)/placement.capacity);}
     RECT EmptyNode()const{return {S(9),S(Controls()?49:9),S(141),S(Controls()?123:83)};}
     void Created()override{Button(L"+",10);Button(L"×",11);Button(L"‹",12);Button(L"›",13);Button(L"↳",14);for(HWND child=GetWindow(hwnd,GW_CHILD);child;child=GetWindow(child,GW_HWNDNEXT))SetWindowSubclass(child,DockContext,1,0);}
     void Set(int s,std::vector<Game> list,games::Placement p){
+        StopReveal();
         for(HWND child=GetWindow(hwnd,GW_CHILD);child;){HWND next=GetWindow(child,GW_HWNDNEXT);if(GetDlgCtrlID(child)>=TileBase)DestroyWindow(child);child=next;}
         store=s;games=std::move(list);placement=std::move(p);static const wchar_t* arrows[]{L"↓",L"↑",L"←",L"→"};Value(14,arrows[static_cast<size_t>(app.state.groupDirections[store])]);app.page=std::clamp(app.page,0,Pages()-1);
         int begin=app.page*placement.capacity,end=(std::min)(static_cast<int>(games.size()),begin+placement.capacity);for(int i=begin;i<end;++i){auto h=Button(games[i].name,TileBase+i-begin);SetPropW(h,L"customDraw",reinterpret_cast<HANDLE>(1));SetWindowSubclass(h,DockContext,1,0);}
         const auto r=placement.bounds;SetWindowPos(hwnd,app.state.topmost?HWND_TOPMOST:HWND_NOTOPMOST,r.left,r.top,r.right-r.left,r.bottom-r.top,SWP_NOACTIVATE);RECT client{};GetClientRect(hwnd,&client);Layout(MulDiv(client.right,96,dpi),MulDiv(client.bottom,96,dpi));InvalidateRect(hwnd,nullptr,TRUE);
     }
     void Layout(int w,int h)override{
+        if(updatingRegion||(revealing&&w==layoutWidth&&h==layoutHeight))return;StopReveal();nodes.clear();layoutWidth=w;layoutHeight=h;
         Place(10,w-98,6,28,28);Place(14,w-66,6,28,28);Place(11,w-34,6,28,28);Place(12,w-76,h-34,30,27);Place(13,w-40,h-34,30,27);
         for(int id:{10,11,12,13,14})Show(id,Controls());
         std::vector<RECT> surfaces;if(Controls()){surfaces.push_back({0,0,S(w),S(40)});surfaces.push_back({0,S(h-38),S(w),S(h)});}
-        for(size_t i=0;i<placement.cells.size();++i){const auto p=placement.cells[i];if(auto child=Get(TileBase+static_cast<int>(i))){MoveWindow(child,p.x,p.y,S(132),S(74),TRUE);surfaces.push_back({p.x,p.y,p.x+S(132),p.y+S(74)});}}
+        for(size_t i=0;i<placement.cells.size();++i){const auto p=placement.cells[i];if(auto child=Get(TileBase+static_cast<int>(i))){MoveWindow(child,p.x,p.y,S(132),S(74),TRUE);nodes.push_back({p.x,p.y,p.x+S(132),p.y+S(74)});}}
+        surfaces.insert(surfaces.end(),nodes.begin(),nodes.end());
         if(games.empty())surfaces.push_back(EmptyNode());
         // The gaps are outside the window itself, so the desktop shows through.
-        if(auto region=ui::CreateNodeRegion(surfaces,S(10)))if(!SetWindowRgn(hwnd,region,TRUE))DeleteObject(region);
+        Region(surfaces);
         EnableWindow(Get(12),app.page>0);EnableWindow(Get(13),app.page+1<Pages());
     }
     void Paint(HDC dc,RECT r)override{
-        if(Controls()){TextAt(dc,app.Name(store),{S(8),S(6),r.right-S(100),S(34)},app.state.colors[store],bold);TextAt(dc,L"Page "+std::to_wstring(app.page+1)+L" / "+std::to_wstring(Pages()),{S(12),r.bottom-S(34),r.right-S(82),r.bottom-S(5)},ui::Muted);}
+        if(Controls()&&!revealing){TextAt(dc,app.Name(store),{S(8),S(6),r.right-S(100),S(34)},app.state.colors[store],bold);TextAt(dc,L"Page "+std::to_wstring(app.page+1)+L" / "+std::to_wstring(Pages()),{S(12),r.bottom-S(34),r.right-S(82),r.bottom-S(5)},ui::Muted);}
         if(games.empty())ui::DrawLauncherTile(dc,EmptyNode(),L"No favorites",L"Right-click to add",app.state.colors[store],font,bold,dpi,0,nullptr,app.state.backgrounds[store]);
     }
     void Item(DRAWITEMSTRUCT* d)override{if(d->CtlType==ODT_MENU){MenuItem(*this,d);return;}auto index=app.page*placement.capacity+static_cast<int>(d->CtlID)-TileBase;if(index>=0&&index<static_cast<int>(games.size()))Tile(*this,d,games[index].name,L"Play",app.state.colors[store],app.GameIcon(games[index]),app.state.backgrounds[store]);}
-    void Context(POINT point){std::vector<MenuChoice> choices{{10,L"Library / add favorites"},{15,Controls()?L"Hide button row":L"Show button row"},{14,L"Flow: "+std::wstring(DirectionName(app.state.groupDirections[store]))},{16,L"Launchers, layout & colors"}};if(Pages()>1){if(app.page>0)choices.push_back({12,L"Previous page"});if(app.page+1<Pages())choices.push_back({13,L"Next page"});}choices.push_back({11,L"Close favorites"});ContextMenu(*this,point,choices);}
+    void Context(POINT point){if(revealing)FinishReveal();std::vector<MenuChoice> choices{{10,L"Library / add favorites"},{15,Controls()?L"Hide button row":L"Show button row"},{14,L"Build: "+std::wstring(DirectionName(app.state.groupDirections[store]))},{16,L"Launchers, layout & colors"}};if(Pages()>1){if(app.page>0)choices.push_back({12,L"Previous page"});if(app.page+1<Pages())choices.push_back({13,L"Next page"});}choices.push_back({11,L"Close favorites"});ContextMenu(*this,point,choices);}
     void Command(int id,int)override{
         if(id>=TileBase){auto index=app.page*placement.capacity+id-TileBase;if(index>=0&&index<static_cast<int>(games.size())){auto game=games[index];app.LaunchGame(game);}return;}
         if(id==10)app.Browse(hwnd,store);if(id==11)app.Collapse();if(id==16)app.Options(hwnd);if(id==12||id==13){app.page+=id==12?-1:1;app.Expand(store,false);}
         if(id==14||id==15){auto before=app.state;if(id==14){auto& d=app.state.groupDirections[store];do{d=static_cast<Direction>((static_cast<int>(d)+1)%4);}while(!Allowed(app.state.direction,d));}else app.state.drawerToolbarVisible[store]=!Controls();if(!app.Persist()){app.state=before;return;}app.Expand(store,id==14);if(auto first=Get(TileBase))SetFocus(first);else SetFocus(hwnd);}
     }
     void Close()override{app.Collapse();}
-    LRESULT Message(UINT msg,WPARAM w,LPARAM l,bool& handled)override{handled=true;if(msg==WM_KEYDOWN&&w==VK_ESCAPE){app.Collapse();return 0;}if(msg==WM_CONTEXTMENU){Context({GET_X_LPARAM(l),GET_Y_LPARAM(l)});return 0;}handled=false;return 0;}
+    LRESULT Message(UINT msg,WPARAM w,LPARAM l,bool& handled)override{handled=true;if(msg==WM_TIMER&&w==RevealTimer){RevealTick();return 0;}if(msg==WM_KEYDOWN&&w==VK_ESCAPE){app.Collapse();return 0;}if(msg==WM_CONTEXTMENU){Context({GET_X_LPARAM(l),GET_Y_LPARAM(l)});return 0;}if(msg==WM_DESTROY||(msg==WM_SHOWWINDOW&&!w)||msg==WM_DPICHANGED)StopReveal();if(msg==WM_SETTINGCHANGE&&revealing)FinishReveal();handled=false;return 0;}
 };
 struct ManualGame:ui::Window {
     Game game;const games::Library& library;LauncherEntry entry;
@@ -238,13 +260,16 @@ struct GameLauncher::Impl::Browser:ui::Window {
 };
 struct GameLauncher::Impl::OptionsWindow:ui::Window {
     Impl& app;State draft;std::vector<int> entries;OptionsWindow(Impl&a):app(a),draft(a.state){}
-    void Created()override{Label(L"LAUNCHERS · LAYOUT & COLORS",20);List(21,52);Button(L"",22);Check(L"Always on top",23,draft.topmost);Check(L"Lock position",24,draft.locked);Label(L"Drag the dock grip onto any screen. Its position is remembered.\nHidden launchers keep their games and favorites.",25);Button(L"Reset position",26);Button(L"Show / hide",27);Button(L"Edit launcher",28);Button(L"Add launcher",29);Button(L"Cancel",IDCANCEL);Button(L"Save layout",IDOK,true);Reload();}
+    void Created()override{Label(L"LAUNCHERS · LAYOUT & COLORS",20);List(21,52);Button(L"",22);Button(L"",30);Check(L"Always on top",23,draft.topmost);Check(L"Lock position",24,draft.locked);Label(L"Open sets the first direction. Build sets the selected launcher's node flow.\nDrag the dock grip onto any screen. Its position is remembered.\nHidden launchers keep their games and favorites.",25);Button(L"Reset position",26);Button(L"Show / hide",27);Button(L"Edit launcher",28);Button(L"Add launcher",29);Button(L"Cancel",IDCANCEL);Button(L"Save layout",IDOK,true);Reload();}
     int Selected()const{int row=static_cast<int>(SendMessageW(Get(21),LB_GETCURSEL,0,0));return row>=0&&row<static_cast<int>(entries.size())?entries[row]:-1;}
-    void Reload(int selected=-1){if(selected<0)selected=Selected();entries.clear();SendMessageW(Get(21),LB_RESETCONTENT,0,0);for(int i=0;i<static_cast<int>(StoreCount);++i)if(!draft.launchers[i].name.empty()){entries.push_back(i);SendMessageW(Get(21),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(draft.launchers[i].name.c_str()));if(i==selected)SendMessageW(Get(21),LB_SETCURSEL,entries.size()-1,0);}if(Selected()<0)SendMessageW(Get(21),LB_SETCURSEL,0,0);Value(22,L"Expand: "+std::wstring(DirectionName(draft.direction)));EnableWindow(Get(29),entries.size()<StoreCount);}
-    void Layout(int w,int)override{Place(20,24,20,w-48,24);Place(21,24,58,w-48,212);Place(27,24,284,156,34);Place(28,192,284,164,34);Place(29,368,284,156,34);Place(22,24,338,w-48,38);Place(23,24,392,280,34);Place(24,330,392,280,34);Place(25,24,446,w-48,58);Place(26,24,526,144,34);Place(IDCANCEL,w-268,526,112,34);Place(IDOK,w-144,526,120,34);}
+    void Directions(){int selected=Selected();Value(22,L"Open: "+std::wstring(DirectionName(draft.direction)));Value(30,selected<0?L"Build direction":L"Build: "+std::wstring(DirectionName(draft.groupDirections[selected])));EnableWindow(Get(30),selected>=0);}
+    void Reload(int selected=-1){if(selected<0)selected=Selected();entries.clear();SendMessageW(Get(21),LB_RESETCONTENT,0,0);for(int i=0;i<static_cast<int>(StoreCount);++i)if(!draft.launchers[i].name.empty()){entries.push_back(i);SendMessageW(Get(21),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(draft.launchers[i].name.c_str()));if(i==selected)SendMessageW(Get(21),LB_SETCURSEL,entries.size()-1,0);}if(Selected()<0)SendMessageW(Get(21),LB_SETCURSEL,0,0);Directions();EnableWindow(Get(29),entries.size()<StoreCount);}
+    void Layout(int w,int)override{Place(20,24,20,w-48,24);Place(21,24,58,w-48,212);Place(27,24,284,156,34);Place(28,192,284,164,34);Place(29,368,284,156,34);Place(22,24,338,(w-60)/2,38);Place(30,36+(w-60)/2,338,(w-60)/2,38);Place(23,24,392,280,34);Place(24,330,392,280,34);Place(25,24,446,w-48,58);Place(26,24,526,144,34);Place(IDCANCEL,w-268,526,112,34);Place(IDOK,w-144,526,120,34);}
     void Item(DRAWITEMSTRUCT* d)override{if(d->itemID>=entries.size())return;int i=entries[d->itemID];auto r=d->rcItem;Box(d->hDC,r,d->itemState&ODS_SELECTED?ui::Selected:ui::Panel);RECT sample{r.left+S(10),r.top+S(8),r.left+S(46),r.bottom-S(8)};Box(d->hDC,sample,draft.backgrounds[i],8);sample.right=sample.left+S(4);Box(d->hDC,sample,draft.colors[i]);r.left+=S(60);r.right-=S(12);r.bottom=r.top+S(28);TextAt(d->hDC,draft.launchers[i].name+(draft.launchers[i].visible?L"  ·  Shown":L"  ·  Hidden"),r,ui::Text,bold);r.top+=S(26);r.bottom+=S(22);TextAt(d->hDC,i<BuiltinCount?L"Installed-game discovery":std::wstring(LauncherKindName(draft.launchers[i].kind))+L" · Manual game entries",r,ui::Muted);}
     void Command(int id,int code)override{
         if(id==IDCANCEL){End(0);return;}int selected=Selected();
+        if(id==21&&code==LBN_SELCHANGE){Directions();return;}
+        if(id==30&&selected>=0){auto& direction=draft.groupDirections[selected];do{direction=static_cast<Direction>((static_cast<int>(direction)+1)%4);}while(!Allowed(draft.direction,direction));Directions();}
         if(id==27&&selected>=0){draft.launchers[selected].visible=!draft.launchers[selected].visible;Reload(selected);}
         if(id==28||(id==21&&code==LBN_DBLCLK)||id==29){if(id==29){selected=-1;for(int i=BuiltinCount;i<static_cast<int>(StoreCount);++i)if(draft.launchers[i].name.empty()){selected=i;break;}}if(selected>=0){LauncherWindow editor(draft,selected);editor.Create(L"Launcher setup",620,466,hwnd);if(editor.Modal(hwnd)==IDOK)Reload(selected);}}
         if(id==22){draft.direction=static_cast<Direction>((static_cast<int>(draft.direction)+1)%4);for(auto& dir:draft.groupDirections)if(!Allowed(draft.direction,dir))dir=draft.direction;Reload();}if(id==26)draft.x=draft.y=-1;
@@ -262,8 +287,8 @@ void GameLauncher::Impl::Apply(){
     for(size_t i=0;i<StoreCount;++i){auto path=state.launchers[i].visible?(state.launchers[i].executable.empty()?library.clients[i]:state.launchers[i].executable):L"";if(path!=artworkPaths[i]){artwork[i].Load(path);artworkPaths[i]=path;}}
     if(expanded>=0&&!state.launchers[expanded].visible)Collapse();PlaceWidget();RECT client{};GetClientRect(widget->hwnd,&client);widget->Layout(MulDiv(client.right,96,widget->dpi),MulDiv(client.bottom,96,widget->dpi));InvalidateRect(widget->hwnd,nullptr,TRUE);for(int i=0;i<static_cast<int>(StoreCount);++i)InvalidateRect(widget->Get(TileBase+i),nullptr,TRUE);if(!state.enabled){Collapse();ShowWindow(widget->hwnd,SW_HIDE);}else if(expanded>=0)Expand(expanded,false);if(browser)PostMessageW(browser,LibraryChanged,0,0);}
 void GameLauncher::Impl::Expand(int store,bool animate){expanded=store;if(animate)page=0;RECT dockRect{},tile{};GetWindowRect(widget->hwnd,&dockRect);GetWindowRect(widget->Get(TileBase+store),&tile);MONITORINFO mi{sizeof(mi)};GetMonitorInfoW(MonitorFromWindow(widget->hwnd,MONITOR_DEFAULTTONEAREST),&mi);auto list=Favorites(store);auto layout=LayoutDrawer(dockRect,tile,mi.rcWork,static_cast<int>(list.size()),state.direction,state.groupDirections[store],widget->dpi,state.drawerToolbarVisible[store]);
-    ShowWindow(drawer->hwnd,SW_HIDE);SetWindowPos(drawer->hwnd,nullptr,layout.bounds.left,layout.bounds.top,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);drawer->Set(store,std::move(list),std::move(layout));BOOL animations=TRUE;SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION,0,&animations,0);if(animate&&animations){DWORD direction=state.direction==Direction::Down?AW_VER_POSITIVE:state.direction==Direction::Up?AW_VER_NEGATIVE:state.direction==Direction::Left?AW_HOR_NEGATIVE:AW_HOR_POSITIVE;AnimateWindow(drawer->hwnd,150,AW_SLIDE|direction);}ShowWindow(drawer->hwnd,SW_SHOWNOACTIVATE);}
-void GameLauncher::Impl::Collapse(){expanded=-1;page=0;if(drawer)ShowWindow(drawer->hwnd,SW_HIDE);}
+    ShowWindow(drawer->hwnd,SW_HIDE);SetWindowPos(drawer->hwnd,nullptr,layout.bounds.left,layout.bounds.top,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);drawer->Set(store,std::move(list),std::move(layout));drawer->BeginReveal(animate);ShowWindow(drawer->hwnd,SW_SHOWNOACTIVATE);}
+void GameLauncher::Impl::Collapse(){expanded=-1;page=0;if(drawer){drawer->StopReveal();ShowWindow(drawer->hwnd,SW_HIDE);}}
 void GameLauncher::Impl::Options(HWND parent){OptionsWindow window(*this);window.Create(L"Floating shortcuts · launchers & colors",680,592,parent);window.Modal(parent);}
 void GameLauncher::Impl::Browse(HWND parent,int store){if(browser){SetForegroundWindow(browser);return;}if(!scanned)Refresh();Browser window(*this,store);window.Create(L"Installed games & favorites",820,620,parent);browser=window.hwnd;window.Modal(parent);browser=nullptr;}
 std::optional<Target> GameLauncher::Impl::Pick(HWND parent){if(!scanned)Refresh();Browser window(*this,0,true);window.Create(L"Add a game launch target",820,620,parent);browser=window.hwnd;window.Modal(parent);browser=nullptr;return window.picked;}

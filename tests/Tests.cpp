@@ -15,6 +15,9 @@
 #include <io.h>
 
 int ArtworkChecks();
+int DrawerChecks();
+int DrawerNativeChecks();
+void DrawerPreview();
 static int checks=0;
 static void Check(bool okay,const char* message){++checks;if(!okay){std::cerr<<"FAILED: "<<message<<'\n';throw std::runtime_error(message);}}
 static elka::Settings Sample(){return {false,{{L"one",L"Game",L"C:\\Games\\game.exe",true,{{L"C:\\Tools\\helper.exe",L"--name \"Halló\"",L"",true}}}}};}
@@ -150,5 +153,5 @@ int wmain(int argc,wchar_t** argv){
         _dup2(_fileno(stdout),_fileno(stderr));setvbuf(stdout,nullptr,_IONBF,0);
     }
     CoInitializeEx(nullptr,COINIT_MULTITHREADED);CoInitializeSecurity(nullptr,-1,nullptr,nullptr,RPC_C_AUTHN_LEVEL_DEFAULT,RPC_C_IMP_LEVEL_IMPERSONATE,nullptr,EOAC_NONE,nullptr);
-    try{if(argc>1){auto mode=std::wstring(argv[1]);if(mode==L"--artwork-preview"){ArtworkPreview();}else if(mode==L"--library-scan"){auto lib=elka::games::Discover();for(const auto& g:lib.games)std::cout<<elka::ToUtf8(std::wstring(elka::games::StoreName(g.store))+L" | "+g.name+L" | "+g.id+L" | "+g.target.arguments)<<'\n';for(const auto& note:lib.notes)std::wcout<<L"Note: "<<note<<L'\n';std::wcout<<L"Installed games: "<<lib.games.size()<<L'\n';}else if(mode==L"--updates"){auto r=elka::CheckUpdates();Check(r.error.empty(),"live GitHub release query");std::wcout<<L"Newer release: "<<(r.available?r.version:L"none")<<L'\n';}else Integration(mode==L"--passive-integration");}else{Unit();GameChecks();checks+=ArtworkChecks();}std::cout<<"PASS: "<<checks<<" checks\n";CoUninitialize();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';CoUninitialize();return 1;}
+    try{if(argc>1){auto mode=std::wstring(argv[1]);if(mode==L"--drawer-native"){checks+=DrawerNativeChecks();}else if(mode==L"--drawer-preview"){checks+=DrawerChecks();DrawerPreview();}else if(mode==L"--artwork-preview"){ArtworkPreview();}else if(mode==L"--library-scan"){auto lib=elka::games::Discover();for(const auto& g:lib.games)std::cout<<elka::ToUtf8(std::wstring(elka::games::StoreName(g.store))+L" | "+g.name+L" | "+g.id+L" | "+g.target.arguments)<<'\n';for(const auto& note:lib.notes)std::wcout<<L"Note: "<<note<<L'\n';std::wcout<<L"Installed games: "<<lib.games.size()<<L'\n';}else if(mode==L"--updates"){auto r=elka::CheckUpdates();Check(r.error.empty(),"live GitHub release query");std::wcout<<L"Newer release: "<<(r.available?r.version:L"none")<<L'\n';}else Integration(mode==L"--passive-integration");}else{Unit();GameChecks();checks+=ArtworkChecks();checks+=DrawerChecks();}std::cout<<"PASS: "<<checks<<" checks\n";CoUninitialize();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';CoUninitialize();return 1;}
 }

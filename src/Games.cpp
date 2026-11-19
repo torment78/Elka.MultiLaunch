@@ -218,6 +218,20 @@ bool Decode(const std::string& text,State& out,std::wstring& error){try{
     }catch(...){error=L"Game launcher settings could not be read. The original launcher.elka file has been kept.";return false;}}
 bool Load(const std::wstring& dir,State& out,std::wstring& error){std::error_code ec;auto file=fs::path(dir)/L"launcher.elka";if(!fs::exists(file,ec)&&!ec){out=State{};error.clear();return true;}return Decode(Read(file),out,error);}
 bool Save(const std::wstring& dir,const State& s,std::wstring& error){auto text=Encode(s);State checked;if(!Decode(text,checked,error))return false;std::error_code ec;fs::create_directories(dir,ec);if(ec){error=L"Could not create launcher settings folder.";return false;}auto path=fs::path(dir)/L"launcher.elka",temp=fs::path(dir)/L"launcher.elka.tmp",backup=fs::path(dir)/L"launcher.elka.bak";{std::ofstream file(temp,std::ios::binary|std::ios::trunc);file.write(text.data(),static_cast<std::streamsize>(text.size()));file.close();if(!file){error=L"Could not write launcher settings.";return false;}}if(fs::exists(path,ec)&&!CopyFileW(path.c_str(),backup.c_str(),FALSE)){error=ErrorText(GetLastError());return false;}if(!MoveFileExW(temp.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){error=ErrorText(GetLastError());return false;}error.clear();return true;}
+static unsigned RevealStep(size_t count){return count>2?static_cast<unsigned>((std::min)(size_t(90),size_t(1030)/(count-2))):90;}
+unsigned DrawerRevealDuration(size_t count){return count==0?0:count==1?260:470+static_cast<unsigned>((count-2)*RevealStep(count));}
+RevealFrame RevealDrawer(const std::vector<RECT>& nodes,Direction opening,Direction flow,unsigned elapsed){
+    RevealFrame frame;frame.finished=elapsed>=DrawerRevealDuration(nodes.size());frame.nodes.reserve(nodes.size());
+    if(frame.finished){frame.nodes=nodes;return frame;}
+    for(size_t i=0;i<nodes.size();++i){
+        unsigned start=i==0?0:260+static_cast<unsigned>((i-1)*RevealStep(nodes.size())),duration=i==0?260:210;
+        if(elapsed<=start)break;double t=(std::min)(1.0,double(elapsed-start)/duration),ease=1-(1-t)*(1-t)*(1-t);auto r=nodes[i];
+        int width=static_cast<int>((r.right-r.left)*ease+0.5),height=static_cast<int>((r.bottom-r.top)*ease+0.5);
+        switch(i==0?opening:flow){case Direction::Up:r.top=r.bottom-height;break;case Direction::Down:r.bottom=r.top+height;break;case Direction::Left:r.left=r.right-width;break;case Direction::Right:r.right=r.left+width;break;}
+        if(r.right>r.left&&r.bottom>r.top)frame.nodes.push_back(r);
+    }
+    return frame;
+}
 Placement LayoutDrawer(RECT widget,RECT tile,RECT work,int count,Direction primary,Direction secondary,UINT dpi,bool controls){
     if(!Allowed(primary,secondary))secondary=primary;auto scale=[&](int n){return MulDiv(n,static_cast<int>(dpi),96);};const int cw=scale(138),ch=scale(80),inset=scale(9),header=controls?scale(40):0,gap=scale(10),footer=controls?scale(38):0;int aw=work.right-work.left,ah=work.bottom-work.top;
     switch(primary){case Direction::Up:ah=widget.top-gap-work.top;break;case Direction::Down:ah=work.bottom-widget.bottom-gap;break;case Direction::Left:aw=widget.left-gap-work.left;break;case Direction::Right:aw=work.right-widget.right-gap;break;}

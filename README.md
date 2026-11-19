@@ -2,7 +2,7 @@
 
 A small, dark-only Windows tray application with optional floating game-launcher tiles. One application starts; up to ten companion applications launch automatically. Native C++17 and Win32, with no .NET, WebView, Electron, downloaded runtime, service, or driver. Game discovery works locally; GitHub is contacted only when you choose **Check updates**.
 
-**Development release:** [v0.2.0-dev.5 downloads](https://github.com/torment78/Elka.MultiLaunch/releases/tag/v0.2.0-dev.5). Choose the dark installer or the portable ZIP. Development builds are prereleases; a stable release is not available yet. Current source is on the `dev` branch.
+**Development release:** [v0.2.0-dev.6 downloads](https://github.com/torment78/Elka.MultiLaunch/releases/tag/v0.2.0-dev.6). Choose the dark installer or the portable ZIP. Development builds are prereleases; a stable release is not available yet. Current source is on the `dev` branch.
 
 ## Use
 
@@ -22,7 +22,9 @@ Changes take effect on **Save changes**. Closing to tray keeps unsaved edits in 
 2. Select **Games** at the top, or **Library** on the floating dock. Choose Steam, EA app, or Battle.net to browse installed games. Use the filter to find a title.
 3. Select a game and choose **Favorite** (or double-click its library row). Favorite changes are saved immediately. Click the store's floating tile to unfold its favorites; click a game tile to send its launch request.
 4. Use **Lock** and **Always on top** directly on the dock's button row. Both apply and save immediately, and active buttons are highlighted. **Options** manages visible launcher tiles, names, presets, colors and expansion direction. Drag the slim top grip onto any screen to move the unlocked dock; its position is remembered.
-5. The drawer's **+** opens the game library. Its arrow cycles the store's own flow direction; the opposite of the dock's main expansion direction is excluded. Drawers wrap on the chosen side, stay inside the monitor's work area, and paginate large favorite collections. Windows' animation preference is respected.
+5. In **Options**, select a launcher and choose **Open** and **Build**, then **Save layout**. Open is the dock's opening direction; Build is that launcher's game-node direction. For example, Open Up + Build Left reveals the first node upward, then builds the remaining nodes to the left. Open Up + Build Up continues straight upward. The drawer's arrow or right-click **Build** command cycles the same per-launcher direction; the opposite of Open is excluded. The **+** button opens the library.
+
+Game nodes unfold one by one with a short eased animation. Five nodes take about 0.74 seconds; large pages finish within 1.5 seconds. The optional drawer controls appear when unfolding finishes. Drawers wrap on the chosen side, stay inside the monitor's work area, and paginate large favorite collections. Windows' animation preference is respected: disabling animations shows the completed drawer immediately. Closing or switching drawers cancels the current animation. A temporary timer runs only during unfolding, then stops; cached artwork stays at its final size throughout.
 
 Right-click a toolbar button or store tile for **Hide button row**. This collapses only the controls and keeps the store tiles available. Right-click a tile again for **Show button row**, **Lock position**, **Always on top**, **Library**, or **Layout options**. The visibility preference is remembered. An unlocked compact dock can be dragged by its slim top grip. **Hide launcher** in this menu (or the row's **Hide** button) hides the whole dock.
 
