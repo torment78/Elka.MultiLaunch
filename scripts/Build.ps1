@@ -15,11 +15,11 @@ if ($Package) {
     $out = Join-Path $root 'artifacts'
     New-Item -ItemType Directory -Path $out -Force | Out-Null
     Copy-Item -LiteralPath "$root\build\$Configuration\Elka.MultiLaunch.exe" -Destination "$out\Elka.MultiLaunch.exe" -Force
-    Compress-Archive -LiteralPath "$out\Elka.MultiLaunch.exe", "$root\README.md", "$root\VALIDATION.md" -DestinationPath "$out\Elka.MultiLaunch-0.2.0-dev.2-win-x64.zip" -Force
+    Compress-Archive -LiteralPath "$out\Elka.MultiLaunch.exe", "$root\README.md", "$root\VALIDATION.md" -DestinationPath "$out\Elka.MultiLaunch-0.2.0-dev.3-win-x64.zip" -Force
     $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-    $releaseFiles = @("$out\Elka.MultiLaunch.exe", "$out\Elka.MultiLaunch-0.2.0-dev.2-win-x64.zip")
-    if (Test-Path $iscc) { & $iscc "/DConfiguration=$Configuration" "$root\installer\Elka.MultiLaunch.iss"; if ($LASTEXITCODE) { throw 'Installer build failed.' }; $releaseFiles += "$out\Elka.MultiLaunch-0.2.0-dev.2-setup-win-x64.exe" }
-    Get-FileHash -LiteralPath $releaseFiles | ForEach-Object { $_.Hash + '  ' + [IO.Path]::GetFileName($_.Path) } | Set-Content -LiteralPath "$out\SHA256SUMS-0.2.0-dev.2.txt"
-    Copy-Item -LiteralPath "$out\SHA256SUMS-0.2.0-dev.2.txt" -Destination "$out\SHA256SUMS.txt" -Force
+    $releaseFiles = @("$out\Elka.MultiLaunch.exe", "$out\Elka.MultiLaunch-0.2.0-dev.3-win-x64.zip")
+    if (Test-Path $iscc) { & $iscc "/DConfiguration=$Configuration" "$root\installer\Elka.MultiLaunch.iss"; if ($LASTEXITCODE) { throw 'Installer build failed.' }; $releaseFiles += "$out\Elka.MultiLaunch-0.2.0-dev.3-setup-win-x64.exe" }
+    Get-FileHash -LiteralPath $releaseFiles | ForEach-Object { $_.Hash + '  ' + [IO.Path]::GetFileName($_.Path) } | Set-Content -LiteralPath "$out\SHA256SUMS-0.2.0-dev.3.txt"
+    Copy-Item -LiteralPath "$out\SHA256SUMS-0.2.0-dev.3.txt" -Destination "$out\SHA256SUMS.txt" -Force
     Get-ChildItem -LiteralPath $out -File | Select-Object Name, Length
 }

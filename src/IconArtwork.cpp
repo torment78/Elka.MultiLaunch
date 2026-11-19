@@ -1,15 +1,21 @@
 #include "IconArtwork.h"
 #include "Ui.h"
 #include <shlobj.h>
+#include <algorithm>
 
 namespace ui {
+HRGN CreateNodeRegion(const std::vector<RECT>& nodes,int diameter){
+    auto region=CreateRectRgn(0,0,0,0);if(!region)return nullptr;
+    for(auto r:nodes){auto part=CreateRoundRectRgn(r.left,r.top,r.right,r.bottom,diameter,diameter);if(!part){DeleteObject(region);return nullptr;}int result=CombineRgn(region,region,part,RGN_OR);DeleteObject(part);if(result==ERROR){DeleteObject(region);return nullptr;}}
+    return region;
+}
 IconArtwork::~IconArtwork(){if(bitmap)DeleteObject(bitmap);}
-bool IconArtwork::Load(const std::wstring& executable){
+bool IconArtwork::Load(const std::wstring& executable,int index,int pixels){
     source.Reset();if(bitmap){DeleteObject(bitmap);bitmap=nullptr;}width=height=0;
     if(executable.empty())return false;
     if(!factory&&FAILED(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory))))return false;
     HICON icon=nullptr;
-    if(SHDefExtractIconW(executable.c_str(),0,0,&icon,nullptr,256)!=S_OK||!icon)return false;
+    if(SHDefExtractIconW(executable.c_str(),index,0,&icon,nullptr,static_cast<UINT>(pixels))!=S_OK||!icon)return false;
     Microsoft::WRL::ComPtr<IWICBitmap> original;
     auto result=factory->CreateBitmapFromHICON(icon,&original);DestroyIcon(icon);
     if(FAILED(result))return false;
@@ -40,7 +46,7 @@ void DrawLauncherTile(HDC dc,RECT r,const std::wstring& name,const std::wstring&
     auto fill=[&](RECT box,COLORREF color,int radius){auto brush=CreateSolidBrush(color);auto oldBrush=SelectObject(dc,brush);auto oldPen=SelectObject(dc,GetStockObject(NULL_PEN));if(radius)RoundRect(dc,box.left,box.top,box.right,box.bottom,scale(radius),scale(radius));else FillRect(dc,&box,brush);SelectObject(dc,oldPen);SelectObject(dc,oldBrush);DeleteObject(brush);};
     fill(r,Background,0);fill(r,state&ODS_SELECTED?Selected:Field,10);
     RECT stripe{r.left,r.top+scale(10),r.left+scale(3),r.bottom-scale(10)};fill(stripe,accent,2);
-    if(artwork){int size=scale(84),left=r.right-size-scale(6),top=r.top+(r.bottom-r.top-size)/2;artwork->Draw(dc,{left,top,left+size,top+size},108);}
+    if(artwork){int size=(std::min)(scale(84),int(r.bottom-r.top)-scale(12)),left=r.right-size-scale(6),top=r.top+(r.bottom-r.top-size)/2;artwork->Draw(dc,{left,top,left+size,top+size},108);}
     SetBkMode(dc,TRANSPARENT);SetTextColor(dc,Text);auto oldFont=SelectObject(dc,bold);
     RECT text{r.left+scale(12),r.top+scale(8),r.right-scale(8),r.top+scale(45)};
     DrawTextW(dc,name.c_str(),static_cast<int>(name.size()),&text,DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS);

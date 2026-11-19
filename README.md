@@ -2,7 +2,7 @@
 
 A small, dark-only Windows tray application with optional floating game-launcher tiles. One application starts; up to ten companion applications launch automatically. Native C++17 and Win32, with no .NET, WebView, Electron, downloaded runtime, service, or driver. Game discovery works locally; GitHub is contacted only when you choose **Check updates**.
 
-**Development release:** [v0.2.0-dev.2 downloads](https://github.com/torment78/Elka.MultiLaunch/releases/tag/v0.2.0-dev.2). Choose the dark installer or the portable ZIP. Development builds are prereleases; a stable release is not available yet. Current source is on the `dev` branch.
+**Development release:** [v0.2.0-dev.3 downloads](https://github.com/torment78/Elka.MultiLaunch/releases/tag/v0.2.0-dev.3). Choose the dark installer or the portable ZIP. Development builds are prereleases; a stable release is not available yet. Current source is on the `dev` branch.
 
 ## Use
 
@@ -21,16 +21,22 @@ Changes take effect on **Save changes**. Closing to tray keeps unsaved edits in 
 1. Open **Settings**, select **Use as game launcher**, and **Save changes**.
 2. Select **Games** at the top, or **Library** on the floating dock. Choose Steam, EA app, or Battle.net to browse installed games. Use the filter to find a title.
 3. Select a game and choose **Favorite** (or double-click its library row). Favorite changes are saved immediately. Click the store's floating tile to unfold its favorites; click a game tile to send its launch request.
-4. Use **Lock** and **Always on top** directly on the dock's button row. Both apply and save immediately, and active buttons are highlighted. **Options** selects the display and expansion direction. Drag the grip at the right of the row to move the unlocked dock.
+4. Use **Lock** and **Always on top** directly on the dock's button row. Both apply and save immediately, and active buttons are highlighted. **Options** selects expansion direction and each store's accent color. Drag the grip onto any screen to move the unlocked dock; its position is remembered.
 5. The drawer's **+** opens the game library. Its arrow cycles the store's own flow direction; the opposite of the dock's main expansion direction is excluded. Drawers wrap on the chosen side, stay inside the monitor's work area, and paginate large favorite collections. Windows' animation preference is respected.
 
 Right-click a toolbar button or store tile for **Hide button row**. This collapses only the controls and keeps the store tiles available. Right-click a tile again for **Show button row**, **Lock position**, **Always on top**, **Library**, or **Layout options**. The visibility preference is remembered. An unlocked compact dock can be dragged by its slim top grip. **Hide launcher** in this menu (or the row's **Hide** button) hides the whole dock.
 
-Store tiles use large translucent logos obtained from the installed launcher EXEs at 256 pixels, scaled for the display using Windows imaging. The images are cached; no icon downloads, web requests, or extra runtime are needed. Missing artwork leaves the store name and controls usable.
+The unfolded game nodes have transparent gaps: only the nodes and any visible controls cover the desktop. Right-click a game node for **Hide button row** to hide its header, X and page controls, independently for each store. The same menu restores the row and offers Library, flow direction, previous/next page and Close favorites. Clicking the store tile again also closes the group. An empty group keeps a small right-clickable hint.
+
+Choose **Options → a store color tile** for a dark color picker with presets and a custom `#RRGGBB` value. **Save layout** applies the color to the store's accent, Favorites text, and its game nodes. Cancel leaves saved colors unchanged.
+
+Store tiles use large translucent logos obtained from the installed launcher EXEs at 256 pixels, scaled for the display using Windows imaging. The images are cached; no icon downloads, web requests, or extra runtime are needed. Missing artwork leaves the store name and controls usable. Game icons in the library and favorite nodes come from local installation icon records or the game EXE. They are loaded only when displayed; a cache holds at most 32 game icons at 128 pixels. A missing record checks only the game folder's first 128 top-level entries, excluding known utility EXE names. No icon downloads, folder watchers or recurring scans are used.
+
+The dock and favorite nodes are windows within the same Multi-Launch process and share its single system-tray icon. They do not create separate tray icons or background processes.
 
 Steam discovery reads `steamapps/libraryfolders.vdf` and installed app manifests across all registered local libraries, including the current nested library format. It obtains the AppID automatically and launches `steam.exe -applaunch <AppID>`. Steam being open never suppresses a game request. Incomplete or missing installations are excluded.
 
-EA discovery reads installed-program records and `__Installer/installerdata.xml`, then passes an `origin2://game/launch?offerIds=...` request to the installed EA launcher. Battle.net discovery reads installed-program records and `Agent/product.db` and uses known product launch codes. Unknown Battle.net products can be added manually with their launcher EXE and arguments. No account tokens, credentials, owned-game web APIs, or SteamCMD login are needed. The store client still handles sign-in, licensing, updates, and launching the game.
+EA discovery reads installed-program records and `__Installer/installerdata.xml`, then passes an `origin2://game/launch?offerIds=...` request to the installed EA launcher. Battle.net discovery reads installed-program records and `Agent/product.db` and uses known product launch codes. If those records are missing, it also checks local `.build.info` markers plus matching game EXEs under Program Files and common game roots (`Games`, `Blizzard_games`, `Blizzard Games`, and `Battle.net Games`) on fixed drives. This is a bounded one-level check during the existing initial scan or **Refresh**, not a full-drive scan. Files found outside Battle.net's registered installations may need **Locate the game** in Battle.net before its launch command can work; their presence does not confirm that they are updated or ready to play. Unknown Battle.net products can be added manually with their launcher EXE and arguments. No account tokens, credentials, owned-game web APIs, or SteamCMD login are needed. The store client still handles sign-in, licensing, updates, and launching the game.
 
 **Add manually** supports other EXE-based launchers and custom commands. For a manually added Steam game, entering only its numeric AppID in Arguments fills in `-applaunch` automatically. Remove custom entries with **Remove custom**. An unavailable favorite is retained in settings and appears again when the game is detected on a later refresh.
 
@@ -64,7 +70,7 @@ Startup opens the app quietly in the tray. Windows may delay startup. Disable st
 
 Settings: `%LOCALAPPDATA%\ElkaSoft\MultiLaunch\settings.elka`. This is a versioned UTF-8 text format with escaped fields. Saves replace the file atomically and retain the previous copy as `settings.elka.bak`. Invalid settings are not partially loaded.
 
-Game favorites, manual entries, launcher enablement, display, position, and drawer preferences are stored separately in `launcher.elka`, with `launcher.elka.bak` retained on save. Existing process profiles are not migrated or replaced by enabling the game launcher.
+Game favorites, manual entries, launcher enablement, last dragged-to monitor, position, colors, and button-row preferences are stored separately in `launcher.elka`, with `launcher.elka.bak` retained on save. Existing process profiles are not migrated or replaced by enabling the game launcher.
 
 Recent history: `history.log` in the same folder. It contains at most 200 activity records and shows launches, skipped targets, failures, and settings changes. Arguments are not logged. History uses the computer's local time.
 

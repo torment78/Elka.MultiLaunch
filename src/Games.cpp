@@ -13,7 +13,36 @@ std::wstring Game::Key() const { return std::to_wstring(static_cast<int>(store))
 const wchar_t* StoreName(Store s) { static const wchar_t* names[]{L"Steam",L"EA app",L"Battle.net",L"Other"}; return names[static_cast<size_t>(s)]; }
 const wchar_t* DirectionName(Direction d) { static const wchar_t* names[]{L"Down",L"Up",L"Left",L"Right"}; return names[static_cast<size_t>(d)]; }
 bool Allowed(Direction p, Direction s) { return static_cast<int>(p)>=0 && static_cast<int>(p)<4 && static_cast<int>(s)>=0 && static_cast<int>(s)<4 && (static_cast<int>(p)^1)!=static_cast<int>(s); }
+std::wstring ColorText(COLORREF color){
+    std::wostringstream text;text<<L"#"<<std::uppercase<<std::hex<<std::setfill(L'0')<<std::setw(2)<<int(GetRValue(color))<<std::setw(2)<<int(GetGValue(color))<<std::setw(2)<<int(GetBValue(color));return text.str();
+}
+bool ParseColor(const std::wstring& text,COLORREF& color){
+    auto value=text;if(!value.empty()&&value.front()==L'#')value.erase(0,1);
+    if(value.size()!=6||value.find_first_not_of(L"0123456789abcdefABCDEF")!=value.npos)return false;
+    auto rgb=std::stoul(value,nullptr,16);color=RGB((rgb>>16)&255,(rgb>>8)&255,rgb&255);return true;
+}
+bool ParseIconLocation(const std::wstring& text,std::wstring& path,int& index){
+    auto value=text;auto begin=value.find_first_not_of(L" \t");if(begin==value.npos)return false;value.erase(0,begin);value.erase(value.find_last_not_of(L" \t")+1);
+    int resource=0;auto comma=value.rfind(L',');
+    if(comma!=value.npos&&value.find(L'"',comma)==value.npos){try{auto number=value.substr(comma+1);size_t used=0;resource=std::stoi(number,&used);if(used!=number.size())return false;value.resize(comma);}catch(...){return false;}}
+    if(value.size()>=2&&value.front()==L'"'&&value.back()==L'"')value=value.substr(1,value.size()-2);
+    if(value.empty()||value.find(L'"')!=value.npos)return false;
+    wchar_t expanded[32768]{};auto length=ExpandEnvironmentStringsW(value.c_str(),expanded,32768);if(!length||length>32768)return false;
+    path=expanded;index=resource;return true;
+}
 static bool Directory(const fs::path& p) { std::error_code ec; return fs::is_directory(p,ec); }
+std::wstring FindGameIcon(const Game& game){
+    if(!game.icon.empty())return game.icon;
+    if(game.store==Store::Other)return game.target.path;
+    if(game.folder.empty())return {};
+    std::wstring best;std::error_code ec;fs::directory_iterator it(game.folder,ec),end;int visited=0;
+    for(;!ec&&it!=end&&visited<128;it.increment(ec),++visited){
+        auto path=it->path();if(elka::Key(path.extension().wstring())!=L".exe"||!it->is_regular_file(ec))continue;
+        auto name=elka::Key(path.filename().wstring());bool utility=false;
+        for(auto skip:{L"crash",L"install",L"unins",L"anticheat",L"launcher",L"redist",L"helper",L"trial",L"support",L"report",L"setup"})if(name.find(skip)!=name.npos)utility=true;
+        if(!utility&&(best.empty()||name.size()<fs::path(best).filename().wstring().size()||(name.size()==fs::path(best).filename().wstring().size()&&name<elka::Key(fs::path(best).filename().wstring()))))best=path.wstring();
+    }return best;
+}
 static std::string Read(const fs::path& p) {
     std::error_code ec; auto size=fs::file_size(p,ec); if(ec||size>8*1024*1024) return {};
     std::ifstream in(p,std::ios::binary); return {std::istreambuf_iterator<char>(in),{}};
@@ -80,27 +109,56 @@ static void AddBattle(Library& lib,std::wstring id,std::wstring name,const std::
     for(const auto& p:products)if(elka::Key(id)==p.internal){if(name.empty())name=p.name;Add(lib,{Store::BattleNet,id,name,path,{lib.clients[2],L"--exec=\"launch "+std::wstring(p.launch)+L"\"",L"",false}});return;}
     if(id!=L"battle.net"&&id!=L"agent"&&id!=L"bna"&&id!=L"bng")lib.notes.push_back(L"Unrecognized Battle.net product '"+id+L"'. Add its launcher command manually.");
 }
+std::vector<std::wstring> BattleBuildProducts(const std::string& text){
+    std::vector<std::wstring> products;if(text.size()>65536)return products;
+    auto split=[](std::string line){if(!line.empty()&&line.back()=='\r')line.pop_back();std::vector<std::string> fields;size_t begin=0;for(;;){auto end=line.find('|',begin);fields.push_back(line.substr(begin,end-begin));if(end==line.npos)break;begin=end+1;}return fields;};
+    std::istringstream input(text);std::string line;if(!std::getline(input,line))return products;auto header=split(line);int active=-1,product=-1,cdn=-1;
+    for(size_t i=0;i<header.size();++i){auto key=header[i].substr(0,header[i].find('!'));if(key=="Active")active=static_cast<int>(i);if(key=="Product")product=static_cast<int>(i);if(key=="CDN Path")cdn=static_cast<int>(i);}
+    while(std::getline(input,line)){auto fields=split(line);auto value=[&](int i){return i>=0&&static_cast<size_t>(i)<fields.size()?fields[i]:std::string{};};if(value(active)!="1")continue;
+        auto id=FromUtf8(value(product));if(id.empty()){auto path=value(cdn);struct Alias{const char* path;const wchar_t* id;};static const Alias aliases[]={{"tpr/fenris",L"fen"},{"tpr/sc1live",L"s1"},{"tpr/sc2",L"s2"},{"tpr/auks",L"auks"},{"tpr/odin",L"odin"},{"tpr/diablo3",L"diablo3"},{"tpr/pro",L"prometheus"},{"tpr/wow",L"wow"},{"tpr/osi",L"osi"}};for(const auto& alias:aliases)if(path==alias.path)id=alias.id;}
+        if(Identifier(id)&&std::find(products.begin(),products.end(),id)==products.end())products.push_back(id);
+    }return products;
+}
+void DiscoverBattleFolder(const fs::path& folder,Library& lib){
+    if(lib.clients[2].empty())return;auto text=Read(folder/L".build.info");if(text.empty())return;
+    struct Executable{const wchar_t* id;const wchar_t* name;};static const Executable executables[]={{L"fen",L"Diablo IV.exe"},{L"s1",L"x86_64/StarCraft.exe"},{L"s1",L"x86/StarCraft.exe"},{L"s2",L"StarCraft II.exe"},{L"auks",L"_retail_/cod.exe"},{L"odin",L"ModernWarfare.exe"},{L"wow",L"_retail_/Wow.exe"},{L"wow",L"_classic_/WowClassic.exe"},{L"diablo3",L"x64/Diablo III64.exe"},{L"diablo3",L"Diablo III.exe"},{L"prometheus",L"_retail_/Overwatch.exe"},{L"osi",L"D2R.exe"},{L"hs_beta",L"Hearthstone.exe"},{L"heroes",L"Heroes of the Storm.exe"},{L"w3",L"_retail_/x86_64/Warcraft III.exe"}};
+    for(const auto& id:BattleBuildProducts(text))for(const auto& exe:executables)if(elka::Key(id)==exe.id&&IsExe((folder/exe.name).wstring())){
+        auto before=lib.games.size();AddBattle(lib,id,L"",folder.wstring());if(lib.games.size()>before)lib.games.back().icon=(folder/exe.name).wstring();break;
+    }
+}
+static void DiscoverBattleFolders(Library& lib){
+    if(lib.clients[2].empty())return;
+    std::set<fs::path> roots{Known(FOLDERID_ProgramFiles),Known(FOLDERID_ProgramFilesX86)};
+    wchar_t drives[512]{};auto length=GetLogicalDriveStringsW(512,drives);if(length&&length<512)for(auto drive=drives;*drive;drive+=wcslen(drive)+1)if(GetDriveTypeW(drive)==DRIVE_FIXED){
+        for(auto name:{L"Games",L"Blizzard_games",L"Blizzard Games",L"Battle.net Games"})roots.insert(fs::path(drive)/name);
+    }
+    // Bounded, one-level checks on Refresh only. No recursive drive search.
+    for(const auto& root:roots){if(root.empty())continue;std::error_code ec;fs::directory_iterator it(root,ec),end;int visited=0;for(;!ec&&it!=end&&visited<256;it.increment(ec),++visited)if(it->is_directory(ec))DiscoverBattleFolder(it->path(),lib);}
+}
 Library Discover(){
     Library lib;auto steam=Reg(HKEY_CURRENT_USER,L"Software\\Valve\\Steam",L"SteamPath");if(steam.empty())steam=Reg(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Valve\\Steam",L"InstallPath",KEY_WOW64_32KEY);if(steam.empty())steam=(fs::path(Known(FOLDERID_ProgramFilesX86))/L"Steam").wstring();DiscoverSteam(steam,lib);
     lib.clients[1]=ProtocolClient(L"origin2",L"EALauncher.exe");lib.clients[2]=ProtocolClient(L"battlenet",L"Battle.net.exe");
     const std::wstring uninstall=L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
     for(auto base:{HKEY_LOCAL_MACHINE,HKEY_CURRENT_USER})for(auto view:{KEY_WOW64_32KEY,KEY_WOW64_64KEY})for(const auto& key:Keys(base,uninstall,view)){
         auto entry=uninstall+L"\\"+key,name=Reg(base,entry,L"DisplayName",view),path=Reg(base,entry,L"InstallLocation",view),command=Reg(base,entry,L"UninstallString",view);
+        std::wstring icon;int iconIndex=0;ParseIconLocation(Reg(base,entry,L"DisplayIcon",view),icon,iconIndex);
         if(!path.empty()){AddEa(lib,path,name);auto at=command.find(L"--uid=");if(at!=command.npos&&elka::Key(command).find(L"battle.net")!=command.npos){auto id=command.substr(at+6);id=id.substr(0,id.find_first_of(L" \"\t"));AddBattle(lib,id,name,path);}}
+        for(auto& game:lib.games){bool match=game.store==Store::Steam?key==L"Steam App "+game.id:!path.empty()&&elka::Key(game.folder)==elka::Key(path);if(match&&!icon.empty()){game.icon=icon;game.iconIndex=iconIndex;}}
     }
     const std::wstring ea=L"SOFTWARE\\EA Games";for(const auto& k:Keys(HKEY_LOCAL_MACHINE,ea,KEY_WOW64_32KEY)){auto entry=ea+L"\\"+k;AddEa(lib,Reg(HKEY_LOCAL_MACHINE,entry,L"Install Dir",KEY_WOW64_32KEY),Reg(HKEY_LOCAL_MACHINE,entry,L"DisplayName",KEY_WOW64_32KEY));}
     auto db=Read(fs::path(Known(FOLDERID_ProgramData))/L"Battle.net"/L"Agent"/L"product.db");if(!db.empty())try{for(const auto& p:ReadBattleDatabase(db))AddBattle(lib,p.id,L"",p.path);}catch(...){lib.notes.push_back(L"Battle.net installation database could not be read. Registry installations are still available.");}
+    DiscoverBattleFolders(lib);
     std::sort(lib.games.begin(),lib.games.end(),[](const Game&a,const Game&b){return a.store==b.store?elka::Key(a.name)<elka::Key(b.name):a.store<b.store;});return lib;
 }
-std::string Encode(const State& s){std::ostringstream o;o<<"ELKA-GAMES 2\n"<<s.enabled<<' '<<s.topmost<<' '<<s.locked<<' '<<static_cast<int>(s.direction)<<' '<<s.x<<' '<<s.y<<' '<<std::quoted(ToUtf8(s.screen))<<' '<<s.toolbarVisible<<'\n';for(auto d:s.groupDirections)o<<static_cast<int>(d)<<' ';o<<'\n'<<s.favorites.size()<<'\n';for(const auto& f:s.favorites)o<<std::quoted(ToUtf8(f))<<'\n';o<<s.custom.size()<<'\n';for(const auto& g:s.custom)o<<static_cast<int>(g.store)<<' '<<std::quoted(ToUtf8(g.id))<<' '<<std::quoted(ToUtf8(g.name))<<' '<<std::quoted(ToUtf8(g.target.path))<<' '<<std::quoted(ToUtf8(g.target.arguments))<<'\n';return o.str();}
-bool Decode(const std::string& text,State& out,std::wstring& error){try{if(text.size()>1024*1024)throw std::runtime_error("Size");std::istringstream in(text);std::string magic,screen;int version=0,e=0,t=0,l=0,d=0;State s;if(!(in>>magic>>version)||magic!="ELKA-GAMES"||(version!=1&&version!=2))throw std::runtime_error("Version");if(!(in>>e>>t>>l>>d>>s.x>>s.y>>std::quoted(screen))||(e&~1)||(t&~1)||(l&~1)||d<0||d>3||s.x< -1||s.y< -1||s.x>100000||s.y>100000)throw std::runtime_error("Options");s.enabled=e!=0;s.topmost=t!=0;s.locked=l!=0;s.direction=static_cast<Direction>(d);s.screen=FromUtf8(screen);if(version==2){int visible=0;if(!(in>>visible)||(visible&~1))throw std::runtime_error("Toolbar");s.toolbarVisible=visible!=0;}for(auto& dir:s.groupDirections){if(!(in>>d)||d<0||d>3)throw std::runtime_error("Direction");dir=static_cast<Direction>(d);if(!Allowed(s.direction,dir))dir=s.direction;}
+std::string Encode(const State& s){std::ostringstream o;o<<"ELKA-GAMES 3\n"<<s.enabled<<' '<<s.topmost<<' '<<s.locked<<' '<<static_cast<int>(s.direction)<<' '<<s.x<<' '<<s.y<<' '<<std::quoted(ToUtf8(s.screen))<<' '<<s.toolbarVisible<<'\n';for(bool visible:s.drawerToolbarVisible)o<<visible<<' ';o<<'\n';for(auto color:s.colors)o<<color<<' ';o<<'\n';for(auto d:s.groupDirections)o<<static_cast<int>(d)<<' ';o<<'\n'<<s.favorites.size()<<'\n';for(const auto& f:s.favorites)o<<std::quoted(ToUtf8(f))<<'\n';o<<s.custom.size()<<'\n';for(const auto& g:s.custom)o<<static_cast<int>(g.store)<<' '<<std::quoted(ToUtf8(g.id))<<' '<<std::quoted(ToUtf8(g.name))<<' '<<std::quoted(ToUtf8(g.target.path))<<' '<<std::quoted(ToUtf8(g.target.arguments))<<'\n';return o.str();}
+bool Decode(const std::string& text,State& out,std::wstring& error){try{if(text.size()>1024*1024)throw std::runtime_error("Size");std::istringstream in(text);std::string magic,screen;int version=0,e=0,t=0,l=0,d=0;State s;if(!(in>>magic>>version)||magic!="ELKA-GAMES"||(version<1||version>3))throw std::runtime_error("Version");if(!(in>>e>>t>>l>>d>>s.x>>s.y>>std::quoted(screen))||(e&~1)||(t&~1)||(l&~1)||d<0||d>3||s.x< -1||s.y< -1||s.x>100000||s.y>100000)throw std::runtime_error("Options");s.enabled=e!=0;s.topmost=t!=0;s.locked=l!=0;s.direction=static_cast<Direction>(d);s.screen=FromUtf8(screen);if(version>=2){int visible=0;if(!(in>>visible)||(visible&~1))throw std::runtime_error("Toolbar");s.toolbarVisible=visible!=0;}if(version>=3){for(auto& visible:s.drawerToolbarVisible){int value=0;if(!(in>>value)||(value&~1))throw std::runtime_error("Drawer toolbar");visible=value!=0;}for(auto& color:s.colors){unsigned long value=0;if(!(in>>value)||value>0xffffff)throw std::runtime_error("Color");color=value;}}for(auto& dir:s.groupDirections){if(!(in>>d)||d<0||d>3)throw std::runtime_error("Direction");dir=static_cast<Direction>(d);if(!Allowed(s.direction,dir))dir=s.direction;}
     size_t count=0;if(!(in>>count)||count>5000)throw std::runtime_error("Favorites");for(size_t i=0;i<count;++i){std::string f;if(!(in>>std::quoted(f))||f.empty()||f.size()>256)throw std::runtime_error("Favorite");s.favorites.insert(FromUtf8(f));}
     if(!(in>>count)||count>1000)throw std::runtime_error("Custom games");std::set<std::wstring> keys;for(size_t i=0;i<count;++i){Game g;int store=0;std::string id,name,path,args;if(!(in>>store>>std::quoted(id)>>std::quoted(name)>>std::quoted(path)>>std::quoted(args))||store<0||store>3||id.empty()||id.size()>128||name.empty()||name.size()>512||path.empty()||path.size()>32000||args.size()>16000)throw std::runtime_error("Game");g.store=static_cast<Store>(store);g.id=FromUtf8(id);g.name=FromUtf8(name);g.target={FromUtf8(path),FromUtf8(args),L"",false};if(!keys.insert(g.Key()).second)throw std::runtime_error("Duplicate game");s.custom.push_back(std::move(g));}in>>std::ws;if(!in.eof())throw std::runtime_error("Trailing data");out=std::move(s);error.clear();return true;
     }catch(...){error=L"Game launcher settings could not be read. The original launcher.elka file has been kept.";return false;}}
 bool Load(const std::wstring& dir,State& out,std::wstring& error){std::error_code ec;auto file=fs::path(dir)/L"launcher.elka";if(!fs::exists(file,ec)&&!ec){out=State{};error.clear();return true;}return Decode(Read(file),out,error);}
 bool Save(const std::wstring& dir,const State& s,std::wstring& error){auto text=Encode(s);State checked;if(!Decode(text,checked,error))return false;std::error_code ec;fs::create_directories(dir,ec);if(ec){error=L"Could not create launcher settings folder.";return false;}auto path=fs::path(dir)/L"launcher.elka",temp=fs::path(dir)/L"launcher.elka.tmp",backup=fs::path(dir)/L"launcher.elka.bak";{std::ofstream file(temp,std::ios::binary|std::ios::trunc);file.write(text.data(),static_cast<std::streamsize>(text.size()));file.close();if(!file){error=L"Could not write launcher settings.";return false;}}if(fs::exists(path,ec)&&!CopyFileW(path.c_str(),backup.c_str(),FALSE)){error=ErrorText(GetLastError());return false;}if(!MoveFileExW(temp.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){error=ErrorText(GetLastError());return false;}error.clear();return true;}
-Placement LayoutDrawer(RECT widget,RECT tile,RECT work,int count,Direction primary,Direction secondary,UINT dpi){
-    if(!Allowed(primary,secondary))secondary=primary;auto scale=[&](int n){return MulDiv(n,static_cast<int>(dpi),96);};const int cw=scale(138),ch=scale(80),inset=scale(9),header=scale(40),gap=scale(10),footer=scale(38);int aw=work.right-work.left,ah=work.bottom-work.top;
+Placement LayoutDrawer(RECT widget,RECT tile,RECT work,int count,Direction primary,Direction secondary,UINT dpi,bool controls){
+    if(!Allowed(primary,secondary))secondary=primary;auto scale=[&](int n){return MulDiv(n,static_cast<int>(dpi),96);};const int cw=scale(138),ch=scale(80),inset=scale(9),header=controls?scale(40):0,gap=scale(10),footer=controls?scale(38):0;int aw=work.right-work.left,ah=work.bottom-work.top;
     switch(primary){case Direction::Up:ah=widget.top-gap-work.top;break;case Direction::Down:ah=work.bottom-widget.bottom-gap;break;case Direction::Left:aw=widget.left-gap-work.left;break;case Direction::Right:aw=work.right-widget.right-gap;break;}
     if(primary==Direction::Up||primary==Direction::Down){if(secondary==Direction::Left)aw=tile.right+scale(12)-work.left;if(secondary==Direction::Right)aw=work.right-tile.left+scale(12);}else{if(secondary==Direction::Up)ah=tile.bottom+scale(12)-work.top;if(secondary==Direction::Down)ah=work.bottom-tile.top+header+scale(12);}
     int maxC=(std::max)(1,((std::min)(aw,int(work.right-work.left))-2*inset)/cw),maxR=(std::max)(1,((std::min)(ah,int(work.bottom-work.top))-header-footer-2*inset)/ch);
