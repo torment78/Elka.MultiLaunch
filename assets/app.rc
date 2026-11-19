@@ -1,8 +1,8 @@
 #include <windows.h>
 101 ICON "app.ico"
 1 VERSIONINFO
-FILEVERSION 0,2,0,7
-PRODUCTVERSION 0,2,0,7
+FILEVERSION 0,2,0,8
+PRODUCTVERSION 0,2,0,8
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
 BEGIN
@@ -12,11 +12,11 @@ BEGIN
   BEGIN
    VALUE "CompanyName", "ElkaSoft\0"
    VALUE "FileDescription", "Elka Multi-Launch\0"
-   VALUE "FileVersion", "0.2.0.7\0"
+   VALUE "FileVersion", "0.2.0.8\0"
    VALUE "InternalName", "Elka.MultiLaunch\0"
    VALUE "OriginalFilename", "Elka.MultiLaunch.exe\0"
    VALUE "ProductName", "Elka Multi-Launch\0"
-   VALUE "ProductVersion", "0.2.0-dev.7\0"
+   VALUE "ProductVersion", "0.2.0-dev.8\0"
   END
  END
  BLOCK "VarFileInfo"

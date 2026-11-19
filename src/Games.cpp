@@ -203,19 +203,23 @@ static void DiscoverBattleFolders(Library& lib){
     // Bounded, one-level checks on Refresh only. No recursive drive search.
     for(const auto& root:roots){if(root.empty())continue;std::error_code ec;fs::directory_iterator it(root,ec),end;int visited=0;for(;!ec&&it!=end&&visited<256;it.increment(ec),++visited)if(it->is_directory(ec))DiscoverBattleFolder(it->path(),lib);}
 }
-Library Discover(){
+Library Discover(const Launchers& launchers){
     Library lib;auto steam=Reg(HKEY_CURRENT_USER,L"Software\\Valve\\Steam",L"SteamPath");if(steam.empty())steam=Reg(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Valve\\Steam",L"InstallPath",KEY_WOW64_32KEY);if(steam.empty())steam=(fs::path(Known(FOLDERID_ProgramFilesX86))/L"Steam").wstring();DiscoverSteam(steam,lib);
     lib.clients[1]=ProtocolClient(L"origin2",L"EALauncher.exe");lib.clients[2]=ProtocolClient(L"battlenet",L"Battle.net.exe");
+    std::vector<InstalledApp> programs,ubisoft;bool extra=false,scanUbisoft=false;for(size_t i=BuiltinCount;i<StoreCount;++i)if(!launchers[i].name.empty()){extra|=HasDiscovery(launchers[i].kind);scanUbisoft|=launchers[i].kind==LauncherKind::Ubisoft;}
     const std::wstring uninstall=L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
     for(auto base:{HKEY_LOCAL_MACHINE,HKEY_CURRENT_USER})for(auto view:{KEY_WOW64_32KEY,KEY_WOW64_64KEY})for(const auto& key:Keys(base,uninstall,view)){
         auto entry=uninstall+L"\\"+key,name=Reg(base,entry,L"DisplayName",view),path=Reg(base,entry,L"InstallLocation",view),command=Reg(base,entry,L"UninstallString",view);
         std::wstring icon;int iconIndex=0;ParseIconLocation(Reg(base,entry,L"DisplayIcon",view),icon,iconIndex);
+        if(extra&&programs.size()<20000)programs.push_back({key,name,path,command,icon,iconIndex});
         if(!path.empty()){AddEa(lib,path,name);auto at=command.find(L"--uid=");if(at!=command.npos&&elka::Key(command).find(L"battle.net")!=command.npos){auto id=command.substr(at+6);id=id.substr(0,id.find_first_of(L" \"\t"));AddBattle(lib,id,name,path);}}
         for(auto& game:lib.games){bool match=game.store==Store::Steam?key==L"Steam App "+game.id:!path.empty()&&elka::Key(game.folder)==elka::Key(path);if(match&&!icon.empty()){game.icon=icon;game.iconIndex=iconIndex;}}
     }
     const std::wstring ea=L"SOFTWARE\\EA Games";for(const auto& k:Keys(HKEY_LOCAL_MACHINE,ea,KEY_WOW64_32KEY)){auto entry=ea+L"\\"+k;AddEa(lib,Reg(HKEY_LOCAL_MACHINE,entry,L"Install Dir",KEY_WOW64_32KEY),Reg(HKEY_LOCAL_MACHINE,entry,L"DisplayName",KEY_WOW64_32KEY));}
     auto db=Read(fs::path(Known(FOLDERID_ProgramData))/L"Battle.net"/L"Agent"/L"product.db");if(!db.empty())try{for(const auto& p:ReadBattleDatabase(db))AddBattle(lib,p.id,L"",p.path);}catch(...){lib.notes.push_back(L"Battle.net installation database could not be read. Registry installations are still available.");}
     DiscoverBattleFolders(lib);
+    if(scanUbisoft){const std::wstring installs=L"SOFTWARE\\Ubisoft\\Launcher\\Installs";for(auto base:{HKEY_LOCAL_MACHINE,HKEY_CURRENT_USER})for(auto view:{KEY_WOW64_32KEY,KEY_WOW64_64KEY})for(const auto& id:Keys(base,installs,view)){if(ubisoft.size()>=4096)break;auto entry=installs+L"\\"+id;ubisoft.push_back({id,Reg(base,entry,L"DisplayName",view),Reg(base,entry,L"InstallDir",view)});}}
+    if(extra)DiscoverLauncherGames(launchers,fs::path(Known(FOLDERID_ProgramData))/L"Epic",programs,ubisoft,lib);
     std::sort(lib.games.begin(),lib.games.end(),[](const Game&a,const Game&b){return a.store==b.store?elka::Key(a.name)<elka::Key(b.name):a.store<b.store;});return lib;
 }
 std::string Encode(const State& s){

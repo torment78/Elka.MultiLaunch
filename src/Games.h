@@ -24,6 +24,7 @@ struct Library {
     std::vector<Game> games;
     std::array<std::wstring, StoreCount> clients;
     std::vector<std::wstring> notes;
+    std::array<std::wstring, StoreCount> status;
 };
 struct State {
     bool enabled = false, topmost = false, locked = false;
@@ -60,7 +61,13 @@ std::wstring ColorText(COLORREF color);
 bool ParseColor(const std::wstring& text, COLORREF& color);
 bool ParseIconLocation(const std::wstring& text, std::wstring& path, int& index);
 std::wstring FindGameIcon(const Game& game);
-Library Discover();
+using Launchers = std::array<LauncherEntry, StoreCount>;
+struct InstalledApp { std::wstring id, name, folder, uninstall, icon; int iconIndex=0; };
+bool HasDiscovery(LauncherKind kind);
+bool DiscoveryChanged(const Launchers& before,const Launchers& after);
+Library Discover(const Launchers& launchers = {});
+void DiscoverLauncherGames(const Launchers& launchers,const std::filesystem::path& epicRoot,
+    const std::vector<InstalledApp>& programs,const std::vector<InstalledApp>& ubisoft,Library& library);
 void DiscoverSteam(const std::filesystem::path& root, Library& library);
 std::vector<std::wstring> BattleBuildProducts(const std::string& text);
 void DiscoverBattleFolder(const std::filesystem::path& folder, Library& library);

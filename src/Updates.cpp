@@ -1,5 +1,6 @@
 #include "Updates.h"
 #include "Core.h"
+#include "Json.h"
 #include <windows.h>
 #include <winhttp.h>
 #include <map>
@@ -10,16 +11,7 @@
 
 namespace elka {
 namespace {
-struct Json { std::map<std::string,Json> object;std::vector<Json> array;std::string text;bool boolean=false; };
-class Reader {
-    const std::string& s;size_t p=0,nodes=0;
-    void Space(){while(p<s.size()&&(s[p]==' '||s[p]=='\n'||s[p]=='\t'||s[p]=='\r'))++p;}
-    char Take(){if(p==s.size())throw std::runtime_error("Truncated JSON");return s[p++];}
-    unsigned Hex(){unsigned n=0;for(int i=0;i<4;++i){char c=Take();n*=16;if(c>='0'&&c<='9')n+=c-'0';else if(c>='a'&&c<='f')n+=c-'a'+10;else if(c>='A'&&c<='F')n+=c-'A'+10;else throw std::runtime_error("JSON escape");}return n;}
-    std::string String(){if(Take()!='"')throw std::runtime_error("JSON string");std::string r;for(;;){char c=Take();if(c=='"')break;if(static_cast<unsigned char>(c)<32)throw std::runtime_error("JSON control");if(c!='\\'){r+=c;continue;}c=Take();switch(c){case '"':case '\\':case '/':r+=c;break;case 'b':r+='\b';break;case 'f':r+='\f';break;case 'n':r+='\n';break;case 'r':r+='\r';break;case 't':r+='\t';break;case 'u':{unsigned h=Hex();std::wstring w(1,static_cast<wchar_t>(h));if(h>=0xd800&&h<=0xdbff){if(Take()!='\\'||Take()!='u')throw std::runtime_error("JSON surrogate");auto low=Hex();if(low<0xdc00||low>0xdfff)throw std::runtime_error("JSON surrogate");w+=static_cast<wchar_t>(low);}r+=ToUtf8(w);break;}default:throw std::runtime_error("JSON escape");}}return r;}
-    Json Value(int depth){Space();if(depth>48||++nodes>100000||p==s.size())throw std::runtime_error("JSON limits");Json j;char c=s[p];if(c=='"'){j.text=String();return j;}if(c=='{'||c=='['){++p;bool object=c=='{';Space();if(p<s.size()&&s[p]==(object?'}':']')){++p;return j;}for(;;){Space();std::string key;if(object){key=String();Space();if(Take()!=':')throw std::runtime_error("JSON colon");}auto child=Value(depth+1);if(object)j.object.emplace(std::move(key),std::move(child));else j.array.push_back(std::move(child));Space();char end=Take();if(end==(object?'}':']'))break;if(end!=',')throw std::runtime_error("JSON comma");}return j;}auto at=p;while(p<s.size()&&s[p]!=','&&s[p]!=']'&&s[p]!='}'&&s[p]!=' '&&s[p]!='\r'&&s[p]!='\n'&&s[p]!='\t')++p;auto token=s.substr(at,p-at);if(token=="true")j.boolean=true;else if(token!="false"&&token!="null"){if(token.empty()||token.find_first_not_of("0123456789eE+.-")!=token.npos)throw std::runtime_error("JSON value");}return j;}
-public:explicit Reader(const std::string& text):s(text){}Json Parse(){if(s.size()>2*1024*1024)throw std::runtime_error("JSON size");auto j=Value(0);Space();if(p!=s.size())throw std::runtime_error("Trailing JSON");return j;}
-};
+using detail::Reader;
 bool Version(std::wstring value,std::array<unsigned,5>& parts){if(!value.empty()&&value[0]==L'v')value.erase(0,1);auto dash=value.find(L'-');auto core=value.substr(0,dash);parts={0,0,0,1,0};if(dash!=value.npos){if(value.substr(dash,5)!=L"-dev.")return false;parts[3]=0;auto dev=value.substr(dash+5);if(dev.empty()||dev.find_first_not_of(L"0123456789")!=dev.npos||dev.size()>8)return false;parts[4]=std::stoul(dev);}size_t p=0;for(size_t i=0;i<3;++i){auto next=core.find(L'.',p);if((i<2&&next==core.npos)||(i==2&&next!=core.npos))return false;auto n=core.substr(p,next-p);if(n.empty()||n.size()>8||n.find_first_not_of(L"0123456789")!=n.npos)return false;parts[i]=std::stoul(n);p=next+1;}return true;}
 struct Internet {HINTERNET h=nullptr;~Internet(){if(h)WinHttpCloseHandle(h);}};
 }
