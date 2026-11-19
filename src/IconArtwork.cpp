@@ -60,7 +60,12 @@ void DrawLauncherTile(HDC dc,RECT r,const std::wstring& name,const std::wstring&
     auto scale=[&](int value){return MulDiv(value,static_cast<int>(dpi),96);};
     auto fill=[&](RECT box,COLORREF color,int radius){auto brush=CreateSolidBrush(color);auto oldBrush=SelectObject(dc,brush);auto oldPen=SelectObject(dc,GetStockObject(NULL_PEN));if(radius)RoundRect(dc,box.left,box.top,box.right,box.bottom,scale(radius),scale(radius));else FillRect(dc,&box,brush);SelectObject(dc,oldPen);SelectObject(dc,oldBrush);DeleteObject(brush);};
     fill(r,Background,0);fill(r,background,10);
-    int saved=SaveDC(dc);if(saved){auto clip=CreateRoundRectRgn(r.left,r.top,r.right,r.bottom,scale(10),scale(10));if(clip){ExtSelectClipRgn(dc,clip,RGN_AND);DeleteObject(clip);}}
+    int saved=SaveDC(dc);
+    if(saved){
+        // Animation capture translates the child control's DC. A GDI path follows
+        // that logical origin; a region passed directly to ExtSelectClipRgn does not.
+        if(BeginPath(dc)){RoundRect(dc,r.left,r.top,r.right,r.bottom,scale(10),scale(10));if(EndPath(dc))SelectClipPath(dc,RGN_AND);else AbortPath(dc);}
+    }
     if(artwork){int size=(std::max)(int(r.right-r.left),int(r.bottom-r.top)),left=r.left+(r.right-r.left-size)/2,top=r.top+(r.bottom-r.top-size)/2;artwork->Draw(dc,{left,top,left+size,top+size},168);}
     if(saved)RestoreDC(dc,saved);
     RECT stripe{r.left,r.top+scale(10),r.left+scale(3),r.bottom-scale(10)};fill(stripe,accent,2);

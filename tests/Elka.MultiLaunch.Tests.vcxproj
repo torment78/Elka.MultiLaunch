@@ -5,6 +5,6 @@
  <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries><CharacterSet>Unicode</CharacterSet></PropertyGroup>
  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>
  <ItemDefinitionGroup><Link><SubSystem>Console</SubSystem></Link></ItemDefinitionGroup>
- <ItemGroup><ClCompile Include="Tests.cpp"/><ClCompile Include="..\src\Core.cpp"/><ClCompile Include="..\src\Platform.cpp"/><ClCompile Include="..\src\Games.cpp"/><ClCompile Include="..\src\Updates.cpp"/><ClCompile Include="..\src\IconArtwork.cpp"/></ItemGroup>
+ <ItemGroup><ClCompile Include="Tests.cpp"/><ClCompile Include="ArtworkTests.cpp"/><ClCompile Include="..\src\Ui.cpp"/><ClCompile Include="..\src\Core.cpp"/><ClCompile Include="..\src\Platform.cpp"/><ClCompile Include="..\src\Games.cpp"/><ClCompile Include="..\src\Updates.cpp"/><ClCompile Include="..\src\IconArtwork.cpp"/></ItemGroup>
  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
 </Project>

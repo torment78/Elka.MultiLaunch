@@ -2,7 +2,7 @@
 
 A small, dark-only Windows tray application with optional floating game-launcher tiles. One application starts; up to ten companion applications launch automatically. Native C++17 and Win32, with no .NET, WebView, Electron, downloaded runtime, service, or driver. Game discovery works locally; GitHub is contacted only when you choose **Check updates**.
 
-**Development release:** [v0.2.0-dev.4 downloads](https://github.com/torment78/Elka.MultiLaunch/releases/tag/v0.2.0-dev.4). Choose the dark installer or the portable ZIP. Development builds are prereleases; a stable release is not available yet. Current source is on the `dev` branch.
+**Development release:** [v0.2.0-dev.5 downloads](https://github.com/torment78/Elka.MultiLaunch/releases/tag/v0.2.0-dev.5). Choose the dark installer or the portable ZIP. Development builds are prereleases; a stable release is not available yet. Current source is on the `dev` branch.
 
 ## Use
 
@@ -42,7 +42,7 @@ In **Library**, choose the launcher from the selector, then **Add manually**:
 
 The optional game folder also helps locate its own icon; **From game EXE** fills that folder. Epic and GOG presets are manual setup helpers; this version does not automatically import their libraries. Changing a launcher's name or preset preserves existing saved game commands. New entries use the selected preset. Hidden launchers remain accessible in Library.
 
-Store tiles use large centered translucent logos obtained from the installed launcher EXEs at 256 pixels, scaled for the display using Windows imaging. The images are cached; no icon downloads, web requests, or extra runtime are needed. Missing artwork leaves the store name and controls usable. Game icons in the library and favorite nodes come from local installation icon records or the game EXE. They are loaded only when displayed; a cache holds at most 32 game icons at 128 pixels. A missing record checks only the game folder's first 128 top-level entries, excluding known utility EXE names. No icon downloads, folder watchers or recurring scans are used.
+Store tiles use large centered translucent logos obtained from the installed launcher EXEs at 256 pixels, scaled for the display using Windows imaging. The images are cached; no icon downloads, web requests, or extra runtime are needed. Missing artwork leaves the store name and controls usable. Game icons in the library and favorite nodes come from local installation icon records or the game EXE. They are loaded only when displayed; a cache holds at most 32 game icons at 128 pixels. A missing or stale record checks the game folder's first 128 top-level entries, excluding known utility and anti-cheat EXEs. If needed, it checks fixed Unreal shipping-binary folders beneath up to 32 project folders, with a shared limit of 256 entries. This supplies the game artwork for titles such as Gray Zone Warfare without using the anti-cheat bootstrap icon. No icon downloads, folder watchers or recurring scans are used.
 
 The dock and favorite nodes are windows within the same Multi-Launch process and share its single system-tray icon. They do not create separate tray icons or background processes.
 

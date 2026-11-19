@@ -90,7 +90,7 @@ struct GameLauncher::Impl {
         if(found==gameArtwork.end()){
             if(gameArtwork.size()>=32){auto oldest=std::min_element(gameArtwork.begin(),gameArtwork.end(),[](const auto& a,const auto& b){return a.second.used<b.second.used;});gameArtwork.erase(oldest);}
             auto image=std::make_unique<ui::IconArtwork>();auto file=FindGameIcon(game);
-            image->Load(file,game.iconIndex,128);found=gameArtwork.emplace(key,CachedIcon{std::move(image),0}).first;
+            image->Load(file,file==game.icon?game.iconIndex:0,128);found=gameArtwork.emplace(key,CachedIcon{std::move(image),0}).first;
         }
         found->second.used=++iconUse;return found->second.image.get();
     }

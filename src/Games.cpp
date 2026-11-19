@@ -43,17 +43,32 @@ bool ParseIconLocation(const std::wstring& text,std::wstring& path,int& index){
     path=expanded;index=resource;return true;
 }
 static bool Directory(const fs::path& p) { std::error_code ec; return fs::is_directory(p,ec); }
+static bool UtilityIcon(const fs::path& path){
+    auto name=elka::Key(path.stem().wstring());
+    for(auto skip:{L"crash",L"install",L"unins",L"anticheat",L"launcher",L"redist",L"helper",L"trial",L"support",L"report",L"setup",L"start_protected_game"})if(name.find(skip)!=name.npos)return true;
+    return name.size()>=3&&name.compare(name.size()-3,3,L"eac")==0;
+}
 std::wstring FindGameIcon(const Game& game){
-    if(!game.icon.empty())return game.icon;
+    std::error_code ec;
+    if(!game.icon.empty()&&fs::is_regular_file(game.icon,ec)&&!(elka::Key(fs::path(game.icon).extension().wstring())==L".exe"&&UtilityIcon(game.icon)))return game.icon;
     if(static_cast<int>(game.store)>=BuiltinCount&&game.folder.empty())return IsEpicLaunchUri(game.target.path)?L"":game.target.path;
     if(game.folder.empty())return {};
-    std::wstring best;std::error_code ec;fs::directory_iterator it(game.folder,ec),end;int visited=0;
+    std::wstring best;std::vector<fs::path> projects;fs::directory_iterator it(game.folder,ec),end;int visited=0;
+    auto consider=[&](const fs::path& path){auto name=elka::Key(path.filename().wstring());if(!UtilityIcon(path)&&(best.empty()||name.size()<fs::path(best).filename().wstring().size()||(name.size()==fs::path(best).filename().wstring().size()&&name<elka::Key(fs::path(best).filename().wstring()))))best=path.wstring();};
     for(;!ec&&it!=end&&visited<128;it.increment(ec),++visited){
+        if(it->is_directory(ec)&&!it->is_symlink(ec)&&elka::Key(it->path().filename().wstring())!=L"engine"&&projects.size()<32)projects.push_back(it->path());
         auto path=it->path();if(elka::Key(path.extension().wstring())!=L".exe"||!it->is_regular_file(ec))continue;
-        auto name=elka::Key(path.filename().wstring());bool utility=false;
-        for(auto skip:{L"crash",L"install",L"unins",L"anticheat",L"launcher",L"redist",L"helper",L"trial",L"support",L"report",L"setup"})if(name.find(skip)!=name.npos)utility=true;
-        if(!utility&&(best.empty()||name.size()<fs::path(best).filename().wstring().size()||(name.size()==fs::path(best).filename().wstring().size()&&name<elka::Key(fs::path(best).filename().wstring()))))best=path.wstring();
-    }return best;
+        consider(path);
+    }
+    if(!best.empty())return best;
+    // Some Unreal games expose only an anti-cheat bootstrap at the top level.
+    // Look at their fixed shipping-binary locations, never recurse through assets.
+    projects.push_back(game.folder);int remaining=256;
+    for(const auto& project:projects)for(auto platform:{L"Win64",L"Win32"}){
+        fs::directory_iterator binaries(project/L"Binaries"/platform,ec);
+        for(;!ec&&binaries!=end&&remaining>0;binaries.increment(ec),--remaining){auto path=binaries->path();auto name=elka::Key(path.filename().wstring());if(name.size()>=13&&name.compare(name.size()-13,13,L"-shipping.exe")==0&&binaries->is_regular_file(ec))consider(path);}
+    }
+    return best;
 }
 static std::string Read(const fs::path& p) {
     std::error_code ec; auto size=fs::file_size(p,ec); if(ec||size>8*1024*1024) return {};

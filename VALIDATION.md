@@ -1,13 +1,15 @@
-# Elka Multi-Launch 0.2.0-dev.4 — validation
+# Elka Multi-Launch 0.2.0-dev.5 — validation
 
 Validated on the development Windows machine on 19 November 2026. This is an unsigned development prerelease.
 
 ## Automated checks
 
 - Release x64 builds with MSVC v145 and Windows SDK 10.0.26100.0, with warnings treated as errors.
-- **147 core and feature checks passed**, covering the original trigger rules/settings, discovery, update parsing, launcher visibility/names/presets, ten launcher slots, stable favorite identities, custom backgrounds, saved swatches, HSV color conversion, narrow/wrapped dock layout, and launcher-format migrations.
-- **6 regular-mode integration checks passed** with real local trigger/companion fixtures. Existing EXE launches, rearming and already-running suppression still work after adding narrow Epic launch-link support.
-- **14 native rendering checks passed**, including store/game icons, stable GDI handle count during 200 draws, PNG output and the shared shade-square/hue-strip renderer. The exported image was inspected: artwork fills the rounded tiles, labels remain visible, backgrounds differ, and the shade square runs from white/selected hue to black.
+- **194 core, feature and rendering-regression checks passed**, including the original trigger rules/settings, discovery, launcher settings/layout, and the icon fixes below.
+- The translated-drawing regression failed against the previous clipping code and passes after the fix. Pixel comparisons cover 100%, 150% and 200% display scaling, gray/blue/red backgrounds, viewport/window origin translation, preservation of an existing clip, and repeated drawing with stable GDI resource counts after initialization. A hidden native owner-drawn button also verifies the Windows animation-capture message path, including custom client-area painting.
+- Icon-lookup fixtures cover anti-cheat bootstrap rejection, Unreal shipping executables, engine-folder exclusion, stale registry paths, registered artwork priority and missing game folders.
+- **15 native artwork-preview checks passed**, including installed store/game icons, stable GDI handle count during 200 draws, PNG output and the shared shade-square/hue-strip renderer. The exported image was inspected and includes the correct Gray Zone Warfare artwork from its shipping executable alongside Battlefield V and Bodycam.
+- The trigger launch path is unchanged; its six regular-mode integration checks passed in dev.4 and were not repeated for this drawing/discovery fix.
 - Passive WMI event monitoring was not changed. Its elevated integration checks were not repeated in this version.
 
 ## Launcher controls and settings
@@ -17,7 +19,7 @@ Validated on the development Windows machine on 19 November 2026. This is an uns
 - Tests cover dock widths with zero through ten visible launchers. Button rectangles remain inside the dock, toolbar visibility does not change its width, and a single launcher uses stacked buttons. Drag position persistence remains in use; toolbar toggling compensates its height to preserve tile position, subject to work-area clamping.
 - Launcher file version 5 stores the shared eight-color palette. Versions 1–3 and the intermediate version 4 preview migrate without losing colors, hidden rows, launcher names, manual games or favorites. Invalid values do not partially replace the saved state.
 - The color picker uses a cached native bitmap for the shade square and hue strip. Saturation/brightness changes move the marker without regenerating the bitmap; changing hue or DPI regenerates it. Closing the picker frees the bitmap.
-- The user exercised the intermediate hide/restore and larger-artwork preview and requested the final narrower dock and shade picker. The final stacked toolbar, drag marker and saved-color interactions still need a live walkthrough. Renderer and layout checks do not substitute for that acceptance.
+- The user reported disappearing/misplaced icons after reopening a drawer, temporarily corrected by changing a color. The fix makes the rounded artwork clip follow the drawing origin during animation and implements custom client-area capture. Live confirmation of repeated drawer opening remains an acceptance step; offscreen rendering checks do not substitute for that walkthrough.
 
 ## Manual launcher presets
 
@@ -29,8 +31,8 @@ Validated on the development Windows machine on 19 November 2026. This is an uns
 
 - The current development cycle detected 22 Steam, 6 EA and 4 Battle.net titles. The Blizzard recovery scan uses local active build markers and matching EXEs in bounded common folders; recovered files may still need Locate the game in Battle.net before launching.
 - Game artwork is loaded only when displayed and retained in a 32-entry cache with 128-pixel source icons. Visible store artwork uses 256-pixel source icons. No icon downloads, new recurring scans, timers, services or background processes were added.
-- Dock and game nodes share the app's existing single tray icon. An isolated test copy is a separate app instance; it is not started alongside another launcher copy during preview updates.
-- The final x64 EXE is 745,984 bytes (728.5 KiB). A new idle benchmark of the final picker build has not been completed; earlier-version memory measurements are not claimed for this build.
+- Dock and game nodes share the app's existing single tray icon. An isolated test copy is a separate app instance; preview replacement waits for existing copies to exit.
+- A new idle benchmark has not been completed for this drawing fix; earlier-version memory measurements are not claimed for this build. The icon cache limits and event-driven drawing remain unchanged.
 - No Windows startup configuration, installed-app profiles, store installation or account settings were changed by validation. The isolated preview retains the user's chosen administrator/passive settings.
 
 ## Packages and remaining acceptance

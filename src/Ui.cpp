@@ -60,6 +60,7 @@ LRESULT CALLBACK Window::Proc(HWND h,UINT m,WPARAM w,LPARAM l){
     case WM_COMMAND:if(HIWORD(w)==BN_CLICKED&&GetPropW(reinterpret_cast<HWND>(l),L"check"))self->Checked(LOWORD(w),!self->Checked(LOWORD(w)));self->Command(LOWORD(w),HIWORD(w));return 0;
     case WM_ERASEBKGND:return 1;
     case WM_PAINT:{PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);RECT r{};GetClientRect(h,&r);FillRect(dc,&r,background);self->Paint(dc,r);EndPaint(h,&ps);return 0;}
+    case WM_PRINTCLIENT:{auto dc=reinterpret_cast<HDC>(w);int saved=SaveDC(dc);RECT r{};GetClientRect(h,&r);FillRect(dc,&r,background);self->Paint(dc,r);if(saved)RestoreDC(dc,saved);return 0;}
     case WM_CTLCOLORSTATIC:case WM_CTLCOLOREDIT:case WM_CTLCOLORLISTBOX:{auto dc=reinterpret_cast<HDC>(w);SetTextColor(dc,Text);SetBkColor(dc,m==WM_CTLCOLORSTATIC?Background:Field);return reinterpret_cast<LRESULT>(m==WM_CTLCOLORSTATIC?background:field);}
     case WM_DRAWITEM:{auto d=reinterpret_cast<DRAWITEMSTRUCT*>(l);if(d->CtlType!=ODT_BUTTON||GetPropW(d->hwndItem,L"customDraw")){self->Item(d);return TRUE;}
         bool checked=GetPropW(d->hwndItem,L"checked"),isCheck=GetPropW(d->hwndItem,L"check"),accent=GetPropW(d->hwndItem,L"accent"),disabled=(d->itemState&ODS_DISABLED)!=0;
