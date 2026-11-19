@@ -2,7 +2,7 @@
 
 A small, dark-only Windows tray application with optional floating game-launcher tiles. One application starts; up to ten companion applications launch automatically. Native C++17 and Win32, with no .NET, WebView, Electron, downloaded runtime, service, or driver. Game discovery works locally; GitHub is contacted only when you choose **Check updates**.
 
-**Development release:** [v0.2.0-dev.1 downloads](https://github.com/torment78/Elka.MultiLaunch/releases/tag/v0.2.0-dev.1). Choose the dark installer or the portable ZIP. Development builds are prereleases; a stable release is not available yet. Current source is on the `dev` branch.
+**Development release:** [v0.2.0-dev.2 downloads](https://github.com/torment78/Elka.MultiLaunch/releases/tag/v0.2.0-dev.2). Choose the dark installer or the portable ZIP. Development builds are prereleases; a stable release is not available yet. Current source is on the `dev` branch.
 
 ## Use
 
@@ -21,8 +21,12 @@ Changes take effect on **Save changes**. Closing to tray keeps unsaved edits in 
 1. Open **Settings**, select **Use as game launcher**, and **Save changes**.
 2. Select **Games** at the top, or **Library** on the floating dock. Choose Steam, EA app, or Battle.net to browse installed games. Use the filter to find a title.
 3. Select a game and choose **Favorite** (or double-click its library row). Favorite changes are saved immediately. Click the store's floating tile to unfold its favorites; click a game tile to send its launch request.
-4. Use **Options** on the dock, or **Settings → Launcher layout**, to choose the display, expansion direction, always-on-top behavior, and position lock. Drag the empty part of the dock header to move it.
+4. Use **Lock** and **Always on top** directly on the dock's button row. Both apply and save immediately, and active buttons are highlighted. **Options** selects the display and expansion direction. Drag the grip at the right of the row to move the unlocked dock.
 5. The drawer's **+** opens the game library. Its arrow cycles the store's own flow direction; the opposite of the dock's main expansion direction is excluded. Drawers wrap on the chosen side, stay inside the monitor's work area, and paginate large favorite collections. Windows' animation preference is respected.
+
+Right-click a toolbar button or store tile for **Hide button row**. This collapses only the controls and keeps the store tiles available. Right-click a tile again for **Show button row**, **Lock position**, **Always on top**, **Library**, or **Layout options**. The visibility preference is remembered. An unlocked compact dock can be dragged by its slim top grip. **Hide launcher** in this menu (or the row's **Hide** button) hides the whole dock.
+
+Store tiles use large translucent logos obtained from the installed launcher EXEs at 256 pixels, scaled for the display using Windows imaging. The images are cached; no icon downloads, web requests, or extra runtime are needed. Missing artwork leaves the store name and controls usable.
 
 Steam discovery reads `steamapps/libraryfolders.vdf` and installed app manifests across all registered local libraries, including the current nested library format. It obtains the AppID automatically and launches `steam.exe -applaunch <AppID>`. Steam being open never suppresses a game request. Incomplete or missing installations are excluded.
 

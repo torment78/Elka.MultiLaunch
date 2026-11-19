@@ -1,14 +1,22 @@
-# Elka Multi-Launch 0.2.0-dev.1 — validation
+# Elka Multi-Launch 0.2.0-dev.2 — validation
 
 Validated on the development Windows machine on 18 November 2026. This is an unsigned development prerelease.
 
 ## Automated checks
 
 - Release x64 builds with Visual Studio Build Tools 2026 / MSVC v145 and Windows SDK 10.0.26100.0, with warnings treated as errors.
-- **91 core and feature checks passed**. The original 44 checks still cover process-trigger settings, limits, cycles, persistence, and rearming. New checks cover launcher settings and favorites, Unicode, malformed input, EA content IDs, Battle.net database fields, Steam multi-library discovery and installation filtering, drawer geometry on negative-coordinate monitors, DPI scaling, pagination, and GitHub release comparisons and response validation.
+- **93 core and feature checks passed**. The original 44 checks still cover process-trigger settings, limits, cycles, persistence, and rearming. New checks cover launcher settings and favorites, Unicode, malformed input, EA content IDs, Battle.net database fields, Steam multi-library discovery and installation filtering, drawer geometry on negative-coordinate monitors, DPI scaling, pagination, and GitHub release comparisons and response validation.
 - **6 regular-mode integration checks passed**: real fixture trigger starts a real companion, does not launch repeatedly, rearms after exit, and suppresses an already-running companion.
 - **1 live GitHub update check passed** using the app's WinHTTP client and release parser.
 - Passive WMI implementation was not changed in this version. Its seven elevated integration checks passed in 0.1.0-dev.1; they were not repeated for this version.
+
+## Store artwork and toolbar refinement
+
+- The actual native tile renderer was exercised against the installed Steam, EA and Battle.net client icons, with 256-pixel source artwork rendered at 200% DPI. The exported preview was visually inspected: large translucent logos, readable labels and dark rounded tiles.
+- **10 artwork/rendering checks passed**, including all three client icons, PNG output, and stable GDI handle count across 200 repeated draws.
+- Launcher settings version 2 saves toolbar visibility. Migration checks confirm that version 1 retains favorites, lock and on-top state and starts with the toolbar visible; invalid visibility values do not partially overwrite settings.
+- Added direct Lock and Always on top buttons and a dark right-click menu for hiding/restoring the button row and changing those states. The compact layout keeps a drag grip and the store tiles accessible.
+- The rendered-artwork check does not substitute for a live right-click, drag, toggle or multi-monitor interaction walkthrough. Those interaction checks remain pending.
 
 ## Local game discovery
 

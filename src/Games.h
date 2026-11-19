@@ -26,6 +26,7 @@ struct State {
     int x = -1, y = -1;
     std::set<std::wstring> favorites;
     std::vector<Game> custom;
+    bool toolbarVisible = true;
 };
 const wchar_t* StoreName(Store store);
 const wchar_t* DirectionName(Direction direction);

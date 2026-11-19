@@ -1,5 +1,6 @@
 #include "GameLauncher.h"
 #include "Ui.h"
+#include "IconArtwork.h"
 #include <algorithm>
 #include <thread>
 #include <mutex>
@@ -12,23 +13,25 @@ using namespace games;
 namespace {
 constexpr UINT Scanned=WM_APP+61,LibraryChanged=WM_APP+62;
 constexpr int TileBase=1000;
+struct MenuChoice { UINT id; std::wstring label; bool checked=false; };
+LRESULT CALLBACK DockContext(HWND child,UINT message,WPARAM w,LPARAM l,UINT_PTR,DWORD_PTR){
+    if(message==WM_CONTEXTMENU){SendMessageW(GetParent(child),message,w,l);return 0;}
+    if(message==WM_NCDESTROY)RemoveWindowSubclass(child,DockContext,1);
+    return DefSubclassProc(child,message,w,l);
+}
 struct Screen { std::wstring name; RECT work{}; bool primary=false; };
 std::vector<Screen> Screens(){std::vector<Screen> r;EnumDisplayMonitors(nullptr,nullptr,[](HMONITOR m,HDC,LPRECT,LPARAM p)->BOOL{MONITORINFOEXW i{};i.cbSize=sizeof(i);if(GetMonitorInfoW(m,&i))reinterpret_cast<std::vector<Screen>*>(p)->push_back({i.szDevice,i.rcWork,(i.dwFlags&MONITORINFOF_PRIMARY)!=0});return TRUE;},reinterpret_cast<LPARAM>(&r));return r;}
 Screen CurrentScreen(const std::wstring& name){auto all=Screens();for(const auto& s:all)if(s.name==name)return s;for(const auto& s:all)if(s.primary)return s;return all.empty()?Screen{L"",{0,0,1280,720},true}:all.front();}
 void Popup(ui::Window& w,const wchar_t* caption,int width,int height){w.Create(caption,width,height);SetWindowLongPtrW(w.hwnd,GWL_STYLE,WS_POPUP|WS_CLIPCHILDREN);SetWindowLongPtrW(w.hwnd,GWL_EXSTYLE,WS_EX_TOOLWINDOW|WS_EX_CONTROLPARENT);SetWindowPos(w.hwnd,nullptr,0,0,w.S(width),w.S(height),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED);}
 COLORREF StoreColor(Store s){static const COLORREF colors[]{RGB(100,181,246),RGB(255,144,102),RGB(103,152,255),ui::Accent};return colors[static_cast<size_t>(s)];}
-void Tile(ui::Window& w,DRAWITEMSTRUCT* d,const std::wstring& name,const std::wstring& detail,Store store,HICON icon=nullptr){
-    const auto r=d->rcItem;w.Box(d->hDC,r,ui::Background);w.Box(d->hDC,r,d->itemState&ODS_SELECTED?ui::Selected:ui::Field,10);auto line=r;line.right=line.left+w.S(3);line.top+=w.S(10);line.bottom-=w.S(10);w.Box(d->hDC,line,StoreColor(store),2);
-    RECT text=r;text.left+=w.S(12);text.right-=w.S(8);text.top+=w.S(8);text.bottom=text.top+w.S(37);
-    if(icon){DrawIconEx(d->hDC,text.left,text.top+w.S(4),icon,w.S(26),w.S(26),0,nullptr,DI_NORMAL);text.left+=w.S(34);}
-    w.TextAt(d->hDC,name,text,ui::Text,w.bold,DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS);text=r;text.left+=w.S(12);text.right-=w.S(8);text.top=r.bottom-w.S(24);w.TextAt(d->hDC,detail,text,StoreColor(store));
-    if(d->itemState&ODS_FOCUS){RECT focus=r;InflateRect(&focus,-w.S(4),-w.S(4));DrawFocusRect(d->hDC,&focus);}
+void Tile(ui::Window& w,DRAWITEMSTRUCT* d,const std::wstring& name,const std::wstring& detail,Store store,ui::IconArtwork* artwork=nullptr){
+    ui::DrawLauncherTile(d->hDC,d->rcItem,name,detail,StoreColor(store),w.font,w.bold,w.dpi,d->itemState,artwork);
 }
 }
 struct GameLauncher::Impl {
     struct Widget;struct Drawer;struct Browser;struct OptionsWindow;
     HWND owner=nullptr,browser=nullptr;std::wstring directory;Log log;State state;games::Library library;
-    std::unique_ptr<Widget> widget;std::unique_ptr<Drawer> drawer;std::array<HICON,StoreCount> icons{};
+    std::unique_ptr<Widget> widget;std::unique_ptr<Drawer> drawer;std::array<ui::IconArtwork,StoreCount> artwork;
     std::thread scanner;std::mutex scanMutex;games::Library scanResult;bool scanning=false,scanned=false,placing=false,closing=false;int expanded=-1,page=0;
     Impl(HWND h,std::wstring d,Log l);~Impl();
     bool Persist(){std::wstring error;if(!games::Save(directory,state,error)){ui::Notice(owner,L"Game launcher settings",error);return false;}return true;}
@@ -39,14 +42,48 @@ struct GameLauncher::Impl {
 };
 struct GameLauncher::Impl::Widget:ui::Window {
     Impl& app;explicit Widget(Impl& a):app(a){}
-    void Created()override{Button(L"Library",10);Button(L"Options",11);Button(L"Hide",12);for(int i=0;i<4;++i){auto h=Button(StoreName(static_cast<Store>(i)),TileBase+i);SetPropW(h,L"customDraw",reinterpret_cast<HANDLE>(1));}}
-    void Layout(int,int)override{Place(10,12,11,78,28);Place(11,96,11,78,28);Place(12,180,11,62,28);for(int i=0;i<4;++i){Place(TileBase+i,12+i*138,50,132,74);Show(TileBase+i,i<3||!app.state.custom.empty());}}
-    void Item(DRAWITEMSTRUCT* d)override{int i=static_cast<int>(d->CtlID)-TileBase;if(i<0||i>3)return;auto count=app.Favorites(i).size();Tile(*this,d,StoreName(static_cast<Store>(i)),app.scanning?L"Scanning…":std::to_wstring(count)+L" favorites",static_cast<Store>(i),app.icons[i]);}
-    void Command(int id,int)override{if(id>=TileBase&&id<TileBase+4){if(app.expanded==id-TileBase)app.Collapse();else app.Expand(id-TileBase);return;}if(id==10)app.Browse(hwnd);if(id==11)app.Options(hwnd);if(id==12)Close();}
+    void Created()override{
+        Button(L"Library",10);Button(L"Options",11);Button(L"Hide",12);Button(L"Lock",13);Button(L"Always on top",14);
+        for(int i=0;i<4;++i){auto h=Button(StoreName(static_cast<Store>(i)),TileBase+i);SetPropW(h,L"customDraw",reinterpret_cast<HANDLE>(1));}
+        for(HWND child=GetWindow(hwnd,GW_CHILD);child;child=GetWindow(child,GW_HWNDNEXT))SetWindowSubclass(child,DockContext,1,0);
+    }
+    void Layout(int,int)override{
+        Place(10,12,11,64,28);Place(11,82,11,64,28);Place(13,152,11,58,28);Place(14,216,11,106,28);Place(12,328,11,54,28);
+        for(int id:{10,11,12,13,14})Show(id,app.state.toolbarVisible);
+        Value(13,app.state.locked?L"Locked":L"Lock");
+        SetPropW(Get(13),L"accent",reinterpret_cast<HANDLE>(static_cast<INT_PTR>(app.state.locked)));
+        SetPropW(Get(14),L"accent",reinterpret_cast<HANDLE>(static_cast<INT_PTR>(app.state.topmost)));
+        InvalidateRect(Get(13),nullptr,TRUE);InvalidateRect(Get(14),nullptr,TRUE);
+        for(int i=0;i<4;++i){Place(TileBase+i,12+i*138,app.state.toolbarVisible?50:12,132,96);Show(TileBase+i,i<3||!app.state.custom.empty());}
+    }
+    void Paint(HDC dc,RECT r)override{
+        if(app.state.locked)return;
+        int x=app.state.toolbarVisible?r.right-S(32):r.right/2-S(10),y=S(app.state.toolbarVisible?22:4);
+        Box(dc,{x,y,x+S(20),y+S(1)},ui::Muted);Box(dc,{x,y+S(4),x+S(20),y+S(5)},ui::Muted);
+    }
+    void Item(DRAWITEMSTRUCT* d)override{
+        if(d->CtlType==ODT_MENU){auto choice=reinterpret_cast<const MenuChoice*>(d->itemData);if(!choice)return;Box(d->hDC,d->rcItem,d->itemState&ODS_SELECTED?ui::Selected:ui::Panel);auto r=d->rcItem;r.left+=S(12);r.right=r.left+S(22);if(choice->checked)TextAt(d->hDC,L"✓",r,ui::Accent,bold);r=d->rcItem;r.left+=S(38);r.right-=S(12);TextAt(d->hDC,choice->label,r);return;}
+        int i=static_cast<int>(d->CtlID)-TileBase;if(i<0||i>3)return;auto count=app.Favorites(i).size();Tile(*this,d,StoreName(static_cast<Store>(i)),app.scanning?L"Scanning…":std::to_wstring(count)+L" favorites",static_cast<Store>(i),&app.artwork[i]);
+    }
+    void Context(POINT point){
+        if(point.x==-1&&point.y==-1){RECT r{};HWND focus=GetFocus();GetWindowRect(IsChild(hwnd,focus)?focus:hwnd,&r);point={r.left+S(12),r.top+S(12)};}
+        MenuChoice choices[]={{10,L"Library"},{11,L"Layout options"},{13,L"Lock position",app.state.locked},{14,L"Always on top",app.state.topmost},{15,app.state.toolbarVisible?L"Hide button row":L"Show button row"},{12,L"Hide launcher"}};
+        HMENU menu=CreatePopupMenu();if(!menu)return;
+        for(const auto& choice:choices)AppendMenuW(menu,MF_OWNERDRAW|(choice.checked?MF_CHECKED:0),choice.id,reinterpret_cast<LPCWSTR>(&choice));
+        HBRUSH brush=CreateSolidBrush(ui::Panel);MENUINFO info{sizeof(info)};info.fMask=MIM_BACKGROUND;info.hbrBack=brush;SetMenuInfo(menu,&info);SetForegroundWindow(hwnd);
+        auto selected=TrackPopupMenu(menu,TPM_RETURNCMD|TPM_RIGHTBUTTON,point.x,point.y,0,hwnd,nullptr);
+        DestroyMenu(menu);DeleteObject(brush);PostMessageW(hwnd,WM_NULL,0,0);if(selected)Command(selected,BN_CLICKED);
+    }
+    void Command(int id,int)override{
+        if(id>=TileBase&&id<TileBase+4){if(app.expanded==id-TileBase)app.Collapse();else app.Expand(id-TileBase);return;}
+        if(id==10)app.Browse(hwnd);if(id==11)app.Options(hwnd);if(id==12)Close();
+        if(id==13||id==14||id==15){auto before=app.state;if(id==13)app.state.locked=!app.state.locked;if(id==14)app.state.topmost=!app.state.topmost;if(id==15)app.state.toolbarVisible=!app.state.toolbarVisible;if(!app.Persist()){app.state=before;return;}app.Apply();if(id==15&&!app.state.toolbarVisible)SetFocus(Get(TileBase));}
+    }
     void Close()override{app.Collapse();ShowWindow(hwnd,SW_HIDE);}
     LRESULT Message(UINT m,WPARAM,LPARAM l,bool& handled)override{
         handled=true;if(m==Scanned){app.ScanDone();return 0;}
-        if(m==WM_NCHITTEST&&!app.state.locked){POINT p{GET_X_LPARAM(l),GET_Y_LPARAM(l)};ScreenToClient(hwnd,&p);if(p.y<S(45)&&p.x>S(250))return HTCAPTION;handled=false;return 0;}
+        if(m==WM_CONTEXTMENU||m==WM_NCRBUTTONUP){Context({GET_X_LPARAM(l),GET_Y_LPARAM(l)});return 0;}
+        if(m==WM_NCHITTEST&&!app.state.locked){POINT p{GET_X_LPARAM(l),GET_Y_LPARAM(l)};ScreenToClient(hwnd,&p);if(app.state.toolbarVisible?(p.y<S(45)&&p.x>S(388)):p.y<S(10))return HTCAPTION;handled=false;return 0;}
         if(m==WM_ENTERSIZEMOVE){app.Collapse();return 0;}
         if(m==WM_EXITSIZEMOVE){MONITORINFOEXW mi{};mi.cbSize=sizeof(mi);GetMonitorInfoW(MonitorFromWindow(hwnd,MONITOR_DEFAULTTONEAREST),&mi);RECT r{};GetWindowRect(hwnd,&r);app.state.screen=mi.szDevice;app.state.x=(std::max)(0,MulDiv(r.left-mi.rcWork.left,96,dpi));app.state.y=(std::max)(0,MulDiv(r.top-mi.rcWork.top,96,dpi));app.PlaceWidget();app.Persist();return 0;}
         if(m==WM_DISPLAYCHANGE){app.PlaceWidget();app.Collapse();return 0;}
@@ -113,13 +150,13 @@ struct GameLauncher::Impl::OptionsWindow:ui::Window {
     void Command(int id,int)override{if(id==IDCANCEL)End(0);if(id==21&&!screens.empty()){auto it=std::find_if(screens.begin(),screens.end(),[&](const Screen&s){return s.name==draft.screen;});draft.screen=it==screens.end()||++it==screens.end()?screens.front().name:it->name;draft.x=draft.y=-1;Update();}if(id==22){draft.direction=static_cast<Direction>((static_cast<int>(draft.direction)+1)%4);for(auto& d:draft.groupDirections)if(!Allowed(draft.direction,d))d=draft.direction;Update();}if(id==26){draft.x=draft.y=-1;}if(id==IDOK){draft.topmost=Checked(23);draft.locked=Checked(24);auto before=app.state;app.state=draft;if(!app.Persist()){app.state=before;return;}app.PlaceWidget();app.Apply();End(IDOK);}}
 };
 GameLauncher::Impl::Impl(HWND h,std::wstring d,Log l):owner(h),directory(std::move(d)),log(std::move(l)){
-    std::wstring error;if(!games::Load(directory,state,error))log(error);widget=std::make_unique<Widget>(*this);Popup(*widget,L"Elka Game Launcher",438,138);drawer=std::make_unique<Drawer>(*this);Popup(*drawer,L"Elka Game Favorites",440,230);PlaceWidget();if(state.enabled){ShowWindow(widget->hwnd,SW_SHOWNOACTIVATE);Refresh();}
+    std::wstring error;if(!games::Load(directory,state,error))log(error);widget=std::make_unique<Widget>(*this);Popup(*widget,L"Elka Game Launcher",438,160);drawer=std::make_unique<Drawer>(*this);Popup(*drawer,L"Elka Game Favorites",440,230);PlaceWidget();if(state.enabled){ShowWindow(widget->hwnd,SW_SHOWNOACTIVATE);Refresh();}
 }
-GameLauncher::Impl::~Impl(){closing=true;if(scanner.joinable())scanner.join();if(drawer&&IsWindow(drawer->hwnd))drawer->End(0);if(widget&&IsWindow(widget->hwnd))widget->End(0);for(auto icon:icons)if(icon)DestroyIcon(icon);}
+GameLauncher::Impl::~Impl(){closing=true;if(scanner.joinable())scanner.join();if(drawer&&IsWindow(drawer->hwnd))drawer->End(0);if(widget&&IsWindow(widget->hwnd))widget->End(0);}
 void GameLauncher::Impl::Refresh(){if(scanning||closing)return;if(scanner.joinable())scanner.join();scanning=true;InvalidateRect(widget->hwnd,nullptr,TRUE);scanner=std::thread([this]{games::Library result;try{result=Discover();}catch(...){result.notes.push_back(L"Game scan could not finish. Refresh to try again.");}{std::lock_guard lock(scanMutex);scanResult=std::move(result);}PostMessageW(widget->hwnd,Scanned,0,0);});}
-void GameLauncher::Impl::ScanDone(){if(scanner.joinable())scanner.join();{std::lock_guard lock(scanMutex);library=std::move(scanResult);}scanning=false;scanned=true;for(size_t i=0;i<3;++i){if(icons[i])DestroyIcon(icons[i]);icons[i]=nullptr;if(!library.clients[i].empty())ExtractIconExW(library.clients[i].c_str(),0,nullptr,&icons[i],1);}log(L"Game library refreshed · "+std::to_wstring(library.games.size())+L" installed games");Apply();if(browser)PostMessageW(browser,LibraryChanged,0,0);}
-void GameLauncher::Impl::PlaceWidget(){if(placing)return;placing=true;auto screen=CurrentScreen(state.screen);int x=screen.work.left+20,y=screen.work.top+40;SetWindowPos(widget->hwnd,nullptr,x,y,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);int width=widget->S(state.custom.empty()?438:576),height=widget->S(138);if(state.x>=0)x=screen.work.left+widget->S(state.x);else if(state.direction==Direction::Left)x=screen.work.right-width-widget->S(24);if(state.y>=0)y=screen.work.top+widget->S(state.y);else if(state.direction==Direction::Up)y=screen.work.bottom-height-widget->S(24);x=std::clamp(x,int(screen.work.left),(std::max)(int(screen.work.left),int(screen.work.right)-width));y=std::clamp(y,int(screen.work.top),(std::max)(int(screen.work.top),int(screen.work.bottom)-height));SetWindowPos(widget->hwnd,state.topmost?HWND_TOPMOST:HWND_NOTOPMOST,x,y,width,height,SWP_NOACTIVATE);placing=false;}
-void GameLauncher::Impl::Apply(){PlaceWidget();for(int i=0;i<4;++i)InvalidateRect(widget->Get(TileBase+i),nullptr,TRUE);if(!state.enabled){Collapse();ShowWindow(widget->hwnd,SW_HIDE);}else if(expanded>=0)Expand(expanded,false);}
+void GameLauncher::Impl::ScanDone(){if(scanner.joinable())scanner.join();{std::lock_guard lock(scanMutex);library=std::move(scanResult);}scanning=false;scanned=true;for(size_t i=0;i<3;++i)artwork[i].Load(library.clients[i]);log(L"Game library refreshed · "+std::to_wstring(library.games.size())+L" installed games");Apply();if(browser)PostMessageW(browser,LibraryChanged,0,0);}
+void GameLauncher::Impl::PlaceWidget(){if(placing)return;placing=true;auto screen=CurrentScreen(state.screen);int x=screen.work.left+20,y=screen.work.top+40;SetWindowPos(widget->hwnd,nullptr,x,y,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);int width=widget->S(state.custom.empty()?438:576),height=widget->S(state.toolbarVisible?160:122);if(state.x>=0)x=screen.work.left+widget->S(state.x);else if(state.direction==Direction::Left)x=screen.work.right-width-widget->S(24);if(state.y>=0)y=screen.work.top+widget->S(state.y);else if(state.direction==Direction::Up)y=screen.work.bottom-height-widget->S(24);x=std::clamp(x,int(screen.work.left),(std::max)(int(screen.work.left),int(screen.work.right)-width));y=std::clamp(y,int(screen.work.top),(std::max)(int(screen.work.top),int(screen.work.bottom)-height));SetWindowPos(widget->hwnd,state.topmost?HWND_TOPMOST:HWND_NOTOPMOST,x,y,width,height,SWP_NOACTIVATE);placing=false;}
+void GameLauncher::Impl::Apply(){PlaceWidget();RECT client{};GetClientRect(widget->hwnd,&client);widget->Layout(MulDiv(client.right,96,widget->dpi),MulDiv(client.bottom,96,widget->dpi));InvalidateRect(widget->hwnd,nullptr,TRUE);for(int i=0;i<4;++i)InvalidateRect(widget->Get(TileBase+i),nullptr,TRUE);if(!state.enabled){Collapse();ShowWindow(widget->hwnd,SW_HIDE);}else if(expanded>=0)Expand(expanded,false);}
 void GameLauncher::Impl::Expand(int store,bool animate){expanded=store;if(animate)page=0;RECT dock{},tile{};GetWindowRect(widget->hwnd,&dock);GetWindowRect(widget->Get(TileBase+store),&tile);MONITORINFO mi{sizeof(mi)};GetMonitorInfoW(MonitorFromWindow(widget->hwnd,MONITOR_DEFAULTTONEAREST),&mi);auto list=Favorites(store);auto layout=LayoutDrawer(dock,tile,mi.rcWork,static_cast<int>(list.size()),state.direction,state.groupDirections[store],widget->dpi);
     ShowWindow(drawer->hwnd,SW_HIDE);SetWindowPos(drawer->hwnd,nullptr,layout.bounds.left,layout.bounds.top,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);drawer->Set(store,std::move(list),std::move(layout));BOOL animations=TRUE;SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION,0,&animations,0);if(animate&&animations){DWORD direction=state.direction==Direction::Down?AW_VER_POSITIVE:state.direction==Direction::Up?AW_VER_NEGATIVE:state.direction==Direction::Left?AW_HOR_NEGATIVE:AW_HOR_POSITIVE;AnimateWindow(drawer->hwnd,150,AW_SLIDE|direction);}ShowWindow(drawer->hwnd,SW_SHOWNOACTIVATE);}
 void GameLauncher::Impl::Collapse(){expanded=-1;page=0;if(drawer)ShowWindow(drawer->hwnd,SW_HIDE);}

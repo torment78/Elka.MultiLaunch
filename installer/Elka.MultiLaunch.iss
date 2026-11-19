@@ -4,7 +4,7 @@
 [Setup]
 AppId={{6D57716D-BF2A-4F7A-91FD-EE2A31C1BD9C}
 AppName=Elka Multi-Launch
-AppVersion=0.2.0-dev.1
+AppVersion=0.2.0-dev.2
 AppPublisher=ElkaSoft
 DefaultDirName={localappdata}\Programs\ElkaSoft\MultiLaunch
 DefaultGroupName=ElkaSoft
@@ -12,7 +12,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\artifacts
-OutputBaseFilename=Elka.MultiLaunch-0.2.0-dev.1-setup-win-x64
+OutputBaseFilename=Elka.MultiLaunch-0.2.0-dev.2-setup-win-x64
 SetupIconFile=..\assets\app.ico
 UninstallDisplayIcon={app}\Elka.MultiLaunch.exe
 Compression=lzma2/ultra64
