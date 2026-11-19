@@ -42,4 +42,5 @@ private:
 bool Notice(HWND owner,const std::wstring& title,const std::wstring& text,bool confirm=false);
 std::wstring PickProcess(HWND owner);
 std::wstring PickExe(HWND owner,const std::wstring& previous=L"");
+std::wstring PickFolder(HWND owner,const std::wstring& previous=L"");
 }

@@ -100,27 +100,28 @@ public:
 };
 std::wstring PickProcess(HWND owner){ProcessPicker p;p.Create(L"Select a running process",820,620,owner,true);p.Modal(owner);return p.selected;}
 class ExePicker:public Window {
-    struct Entry{std::wstring name,path;bool folder;};std::vector<Entry> entries;std::wstring current,initial;
+    struct Entry{std::wstring name,path;bool folder;};std::vector<Entry> entries;std::wstring current,initial;bool foldersOnly=false;
 public:
     std::wstring selected;
-    explicit ExePicker(std::wstring previous):initial(std::move(previous)){}
-    void Created()override{Label(L"Folder or full EXE path",10);Edit(L"",11);Button(L"Go",12);Button(L"Up",13);Button(L"Drives",14);List(15,36);Label(L"Double-click a folder or application. You can also paste a full EXE path above.",16);Button(L"Cancel",IDCANCEL);Button(L"Use application",IDOK,true);auto folder=elka::Parent(initial);if(folder.empty()){wchar_t p[32768]{};GetEnvironmentVariableW(L"ProgramFiles",p,32768);folder=p;}Navigate(folder);}
+    explicit ExePicker(std::wstring previous,bool folders=false):initial(std::move(previous)),foldersOnly(folders){}
+    void Created()override{Label(foldersOnly?L"Folder path":L"Folder or full EXE path",10);Edit(L"",11);Button(L"Go",12);Button(L"Up",13);Button(L"Drives",14);List(15,36);Label(L"",16);Button(L"Cancel",IDCANCEL);Button(foldersOnly?L"Use this folder":L"Use application",IDOK,true);auto folder=foldersOnly?initial:elka::Parent(initial);if(folder.empty()){wchar_t p[32768]{};GetEnvironmentVariableW(L"ProgramFiles",p,32768);folder=p;}Navigate(folder);}
     void Layout(int w,int h)override{Place(10,24,18,w-48,22);Place(11,24,48,w-298,30);Place(12,w-264,48,64,30);Place(13,w-190,48,70,30);Place(14,w-110,48,86,30);Place(15,24,94,w-48,h-202);Place(16,24,h-94,w-48,38);Place(IDCANCEL,w-280,h-50,112,34);Place(IDOK,w-156,h-50,132,34);}
     void Navigate(std::wstring path){
         if(path.size()>=2&&path.front()==L'"'&&path.back()==L'"')path=path.substr(1,path.size()-2);
-        if(elka::IsExe(path)){selected=path;End(IDOK);return;}
+        if(!foldersOnly&&elka::IsExe(path)){selected=path;End(IDOK);return;}
         std::error_code ec;std::vector<Entry> next;
         if(path.empty()){wchar_t drives[512]{};GetLogicalDriveStringsW(512,drives);for(auto p=drives;*p;p+=wcslen(p)+1)next.push_back({p,p,true});}
         else{auto full=std::filesystem::absolute(path,ec);if(ec||!std::filesystem::is_directory(full,ec)){Value(16,L"Folder not found. Enter a folder path or select an .exe file.");return;}path=full.wstring();
             std::filesystem::directory_iterator it(full,std::filesystem::directory_options::skip_permission_denied,ec),end;
             if(ec){Value(16,L"This folder could not be opened: "+elka::ErrorText(static_cast<DWORD>(ec.value())));return;}
-            for(;it!=end;it.increment(ec)){if(ec)break;auto name=it->path().filename().wstring();bool folder=it->is_directory(ec);auto ext=elka::Key(it->path().extension().wstring());if(folder||ext==L".exe")next.push_back({name,it->path().wstring(),folder});}
+            for(;it!=end;it.increment(ec)){if(ec)break;auto name=it->path().filename().wstring();bool folder=it->is_directory(ec);auto ext=elka::Key(it->path().extension().wstring());if(folder||(!foldersOnly&&ext==L".exe"))next.push_back({name,it->path().wstring(),folder});}
             std::sort(next.begin(),next.end(),[](const auto& a,const auto& b){return a.folder!=b.folder?a.folder>b.folder:elka::Key(a.name)<elka::Key(b.name);});
         }
-        entries=std::move(next);current=path;Value(11,path);SendMessageW(Get(15),LB_RESETCONTENT,0,0);for(const auto& e:entries)SendMessageW(Get(15),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(e.name.c_str()));Value(16,std::to_wstring(entries.size())+L" folders and EXE files · scroll for more. Double-click to open.\nYou can paste a folder or full EXE path above, then select Go.");
+        entries=std::move(next);current=path;Value(11,path);SendMessageW(Get(15),LB_RESETCONTENT,0,0);for(const auto& e:entries)SendMessageW(Get(15),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(e.name.c_str()));Value(16,foldersOnly?L"Double-click to open a folder. Use this folder selects the current location.\nYou can also paste a folder path above and select Go.":std::to_wstring(entries.size())+L" folders and EXE files · scroll for more. Double-click to open.\nYou can paste a folder or full EXE path above, then select Go.");
     }
-    void Command(int id,int code)override{if(id==IDCANCEL)End(0);else if(id==12)Navigate(Value(11));else if(id==13){auto p=std::filesystem::path(current).parent_path();Navigate(p==std::filesystem::path(current)?L"":p.wstring());}else if(id==14)Navigate(L"");else if(id==IDOK||(id==15&&code==LBN_DBLCLK)){auto index=SendMessageW(Get(15),LB_GETCURSEL,0,0);if(index>=0&&static_cast<size_t>(index)<entries.size())Navigate(entries[index].path);else if(Value(11)!=current)Navigate(Value(11));}}
+    void Command(int id,int code)override{if(id==IDCANCEL)End(0);else if(id==12)Navigate(Value(11));else if(id==13){auto p=std::filesystem::path(current).parent_path();Navigate(p==std::filesystem::path(current)?L"":p.wstring());}else if(id==14)Navigate(L"");else if(id==IDOK&&foldersOnly){auto requested=Value(11);if(requested.size()>=2&&requested.front()==L'"'&&requested.back()==L'"')requested=requested.substr(1,requested.size()-2);std::error_code ec;auto full=std::filesystem::absolute(requested,ec);if(requested.empty()||ec||!std::filesystem::is_directory(full,ec)){Value(16,L"Choose an existing game folder.");return;}selected=full.wstring();End(IDOK);}else if(id==IDOK||(id==15&&code==LBN_DBLCLK)){auto index=SendMessageW(Get(15),LB_GETCURSEL,0,0);if(index>=0&&static_cast<size_t>(index)<entries.size())Navigate(entries[index].path);else if(Value(11)!=current)Navigate(Value(11));}}
     void Item(DRAWITEMSTRUCT* d)override{if(d->itemID>=entries.size())return;const auto& e=entries[d->itemID];Box(d->hDC,d->rcItem,d->itemState&ODS_SELECTED?Selected:Field);RECT r=d->rcItem;r.left+=S(12);r.right-=S(12);TextAt(d->hDC,(e.folder?L"▸   ":L"     ")+e.name,r,e.folder?Text:Accent);}
 };
 std::wstring PickExe(HWND owner,const std::wstring& previous){ExePicker p(previous);p.Create(L"Select an EXE file",820,620,owner,true);p.Modal(owner);return p.selected;}
+std::wstring PickFolder(HWND owner,const std::wstring& previous){ExePicker p(previous,true);p.Create(L"Select a game folder",820,620,owner,true);p.Modal(owner);return p.selected;}
 }

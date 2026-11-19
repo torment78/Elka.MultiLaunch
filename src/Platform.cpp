@@ -127,7 +127,8 @@ std::vector<Process> Processes(bool allPaths,const Settings* filter,bool* succes
     if(allPaths)std::sort(result.begin(),result.end(),[](const auto& a,const auto& b){return Key(a.name)<Key(b.name);});return result;
 }
 bool Launch(const Target& t,DWORD& pid,std::wstring& error){
-    pid=0;bool protocol=IsEpicLaunchUri(t.path);if(protocol&&(!t.arguments.empty()||!t.directory.empty())){error=L"Epic launch links do not accept extra arguments or a working folder.";return false;}if(!protocol&&!IsExe(t.path)){error=L"EXE not found: "+t.path;return false;}
+    pid=0;bool protocol=IsGameLaunchUri(t.path);if(protocol&&(!t.arguments.empty()||!t.directory.empty())){error=L"Game launch links do not accept extra arguments or a working folder.";return false;}if(!protocol&&!IsExe(t.path)){error=L"EXE not found: "+t.path;return false;}
+    if(protocol){auto scheme=t.path.substr(0,t.path.find(L':'));HKEY key=nullptr;if(RegOpenKeyExW(HKEY_CLASSES_ROOT,scheme.c_str(),0,KEY_READ,&key)!=ERROR_SUCCESS){error=IsUbisoftLaunchUri(t.path)?L"Install and open Ubisoft Connect once, then try this game again.":L"Install and open Epic Games Launcher once, then try this game again.";return false;}RegCloseKey(key);}
     auto dir=protocol?L"":t.directory.empty()?Parent(t.path):t.directory;
     SHELLEXECUTEINFOW info{sizeof(info)};info.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_NOASYNC|SEE_MASK_FLAG_NO_UI;info.lpVerb=L"open";info.lpFile=t.path.c_str();info.lpParameters=t.arguments.empty()?nullptr:t.arguments.c_str();info.lpDirectory=dir.empty()?nullptr:dir.c_str();info.nShow=SW_SHOWNORMAL;
     if(!ShellExecuteExW(&info)){error=ErrorText(GetLastError());return false;}

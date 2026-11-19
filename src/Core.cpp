@@ -61,6 +61,12 @@ bool IsEpicLaunchUri(const std::wstring& value){
     for(size_t i=0;i<id.size();++i){auto c=id[i];if(c==L'%'){if(i+2>=id.size()||!iswxdigit(id[i+1])||!iswxdigit(id[i+2]))return false;i+=2;}else if(!((c>=L'a'&&c<=L'z')||(c>=L'A'&&c<=L'Z')||(c>=L'0'&&c<=L'9')||c==L'-'||c==L'_'||c==L'.'||c==L':'))return false;}
     return true;
 }
+bool IsUbisoftLaunchUri(const std::wstring& value){
+    const std::wstring prefix=L"uplay://launch/";if(value.compare(0,prefix.size(),prefix)!=0)return false;auto id=value.substr(prefix.size());
+    if(id.size()>2&&id.compare(id.size()-2,2,L"/0")==0)id.resize(id.size()-2);
+    return !id.empty()&&id.size()<=20&&id.find_first_not_of(L"0123456789")==id.npos;
+}
+bool IsGameLaunchUri(const std::wstring& value){return IsEpicLaunchUri(value)||IsUbisoftLaunchUri(value);}
 std::wstring Validate(const Settings& s) {
     if(s.passive&&!s.runAsAdmin)return L"Passive mode requires Run as administrator.";
     if (s.profiles.size() > MaxProfiles) return L"You can save up to ten profiles.";

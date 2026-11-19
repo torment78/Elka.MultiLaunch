@@ -22,7 +22,7 @@ DockMetrics LayoutDock(int visibleCount,int availableWidth,bool toolbar){
     if(toolbar){const int widths[]{64,64,58,106,54};int x=12,y=16;for(int width:widths){if(result.columns==1)width=132;if(x>12&&x+width>result.width-12){x=12;y+=34;}result.buttons.push_back({x,y,x+width,y+28});x+=width+6;}result.tileTop=y+36;}else result.tileTop=12;
     int rows=(count+result.columns-1)/result.columns;result.height=result.tileTop+rows*102+8;return result;
 }
-const wchar_t* LauncherKindName(LauncherKind kind){switch(kind){case LauncherKind::Epic:return L"Epic Games";case LauncherKind::Gog:return L"GOG Galaxy";default:return L"Custom EXE";}}
+const wchar_t* LauncherKindName(LauncherKind kind){switch(kind){case LauncherKind::Epic:return L"Epic Games";case LauncherKind::Gog:return L"GOG Galaxy";case LauncherKind::Ubisoft:return L"Ubisoft Connect";case LauncherKind::Rockstar:return L"Rockstar Games";default:return L"Custom EXE";}}
 const wchar_t* DirectionName(Direction d) { static const wchar_t* names[]{L"Down",L"Up",L"Left",L"Right"}; return names[static_cast<size_t>(d)]; }
 bool Allowed(Direction p, Direction s) { return static_cast<int>(p)>=0 && static_cast<int>(p)<4 && static_cast<int>(s)>=0 && static_cast<int>(s)<4 && (static_cast<int>(p)^1)!=static_cast<int>(s); }
 std::wstring ColorText(COLORREF color){
@@ -51,7 +51,7 @@ static bool UtilityIcon(const fs::path& path){
 std::wstring FindGameIcon(const Game& game){
     std::error_code ec;
     if(!game.icon.empty()&&fs::is_regular_file(game.icon,ec)&&!(elka::Key(fs::path(game.icon).extension().wstring())==L".exe"&&UtilityIcon(game.icon)))return game.icon;
-    if(static_cast<int>(game.store)>=BuiltinCount&&game.folder.empty())return IsEpicLaunchUri(game.target.path)?L"":game.target.path;
+    if(static_cast<int>(game.store)>=BuiltinCount&&game.folder.empty())return IsGameLaunchUri(game.target.path)?L"":game.target.path;
     if(game.folder.empty())return {};
     std::wstring best;std::vector<fs::path> projects;fs::directory_iterator it(game.folder,ec),end;int visited=0;
     auto consider=[&](const fs::path& path){auto name=elka::Key(path.filename().wstring());if(!UtilityIcon(path)&&(best.empty()||name.size()<fs::path(best).filename().wstring().size()||(name.size()==fs::path(best).filename().wstring().size()&&name<elka::Key(fs::path(best).filename().wstring()))))best=path.wstring();};
@@ -94,20 +94,43 @@ static std::wstring ProtocolClient(const wchar_t* scheme,const wchar_t* exeName)
     return IsExe(path)?path:L"";
 }
 std::wstring FindLauncher(LauncherKind kind){
-    if(kind==LauncherKind::Epic){auto path=ProtocolClient(L"com.epicgames.launcher",L"EpicGamesLauncher.exe");if(!path.empty())return path;for(auto root:{Known(FOLDERID_ProgramFilesX86),Known(FOLDERID_ProgramFiles)}){auto candidate=(fs::path(root)/L"Epic Games/Launcher/Portal/Binaries/Win64/EpicGamesLauncher.exe").wstring();if(IsExe(candidate))return candidate;}}
-    if(kind==LauncherKind::Gog){auto root=Reg(HKEY_LOCAL_MACHINE,L"SOFTWARE\\GOG.com\\GalaxyClient\\paths",L"client",KEY_WOW64_32KEY);if(root.empty())root=(fs::path(Known(FOLDERID_ProgramFilesX86))/L"GOG Galaxy").wstring();auto path=(fs::path(root)/L"GalaxyClient.exe").wstring();if(IsExe(path))return path;}return {};
+    std::vector<std::wstring> executables,folders;std::wstring installedName;
+    if(kind==LauncherKind::Epic){auto path=ProtocolClient(L"com.epicgames.launcher",L"EpicGamesLauncher.exe");if(!path.empty())return path;executables={L"EpicGamesLauncher.exe"};folders={L"Epic Games/Launcher/Portal/Binaries/Win64",L"Epic Games/Launcher/Portal/Binaries/Win32"};installedName=L"Epic Games Launcher";}
+    if(kind==LauncherKind::Gog){auto root=Reg(HKEY_LOCAL_MACHINE,L"SOFTWARE\\GOG.com\\GalaxyClient\\paths",L"client",KEY_WOW64_32KEY);auto path=(fs::path(root)/L"GalaxyClient.exe").wstring();if(!root.empty()&&IsExe(path))return path;executables={L"GalaxyClient.exe"};folders={L"GOG Galaxy"};installedName=L"GOG GALAXY";}
+    if(kind==LauncherKind::Ubisoft){executables={L"UbisoftConnect.exe",L"upc.exe",L"Uplay.exe"};for(const auto& exe:executables){auto path=ProtocolClient(L"uplay",exe.c_str());if(!path.empty())return path;}for(auto view:{KEY_WOW64_32KEY,KEY_WOW64_64KEY}){auto root=Reg(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Ubisoft\\Launcher",L"InstallDir",view);if(!root.empty())for(const auto& exe:executables){auto path=(fs::path(root)/exe).wstring();if(IsExe(path))return path;}}folders={L"Ubisoft/Ubisoft Game Launcher"};installedName=L"Ubisoft Connect";}
+    if(kind==LauncherKind::Rockstar){executables={L"Launcher.exe"};folders={L"Rockstar Games/Launcher"};installedName=L"Rockstar Games Launcher";}
+    if(executables.empty())return {};
+    for(auto root:{Known(FOLDERID_ProgramFilesX86),Known(FOLDERID_ProgramFiles)})for(const auto& folder:folders)for(const auto& exe:executables){auto candidate=(fs::path(root)/folder/exe).wstring();if(IsExe(candidate))return candidate;}
+    const std::wstring uninstall=L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
+    for(auto base:{HKEY_LOCAL_MACHINE,HKEY_CURRENT_USER})for(auto view:{KEY_WOW64_32KEY,KEY_WOW64_64KEY})for(const auto& key:Keys(base,uninstall,view)){
+        auto entry=uninstall+L"\\"+key;if(elka::Key(Reg(base,entry,L"DisplayName",view))!=elka::Key(installedName))continue;auto root=Reg(base,entry,L"InstallLocation",view);
+        if(!root.empty())for(const auto& exe:executables){auto candidate=(fs::path(root)/exe).wstring();if(IsExe(candidate))return candidate;}
+        std::wstring icon;int index=0;if(ParseIconLocation(Reg(base,entry,L"DisplayIcon",view),icon,index)&&IsExe(icon))for(const auto& exe:executables)if(elka::Key(FileName(icon))==elka::Key(exe))return icon;
+    }
+    return {};
 }
 bool ManualTarget(LauncherKind kind,const std::wstring& executable,const std::wstring& value,const std::wstring& folder,Target& target,std::wstring& error){
     Target next{executable,value,L"",false};error.clear();
+    auto quotedFolder=[&](){auto quoted=folder;for(size_t at=folder.size();at>0&&folder[at-1]==L'\\';--at)quoted+=L'\\';return L"\""+quoted+L"\"";};
+    auto folderValid=[&](){return !folder.empty()&&fs::path(folder).is_absolute()&&folder.find_first_of(L"\"\r\n")==folder.npos;};
     if(kind==LauncherKind::Epic){
-        auto uri=value;if(!IsEpicLaunchUri(uri)){
+        auto uri=value;if(value.empty()&&!folder.empty()){
+            if(!folderValid()){error=L"Choose a full game installation folder path.";return false;}auto normalized=folder;std::replace(normalized.begin(),normalized.end(),L'\\',L'/');std::wstring encoded;const wchar_t* hex=L"0123456789ABCDEF";
+            for(unsigned char c:ToUtf8(normalized)){if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_'||c=='.')encoded+=static_cast<wchar_t>(c);else{encoded+=L'%';encoded+=hex[c>>4];encoded+=hex[c&15];}}
+            uri=L"com.epicgames.launcher://apps/"+encoded+L"?action=launch&silent=true";
+        }else if(!IsEpicLaunchUri(uri)){
             if(value.empty()||value.size()>512||value.find_first_not_of(L"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:_-.")!=value.npos){error=L"Enter the Epic game ID (or namespace:item:artifact), or paste its full Epic launch link.";return false;}
             std::wstring encoded;for(auto c:value)encoded+=c==L':'?L"%3A":std::wstring(1,c);uri=L"com.epicgames.launcher://apps/"+encoded+L"?action=launch&silent=true";
-        }next={uri,L"",L"",false};
+        }if(!IsEpicLaunchUri(uri)){error=L"The Epic launch link is too long or invalid.";return false;}next={uri,L"",L"",false};
     }else if(kind==LauncherKind::Gog){
         if(value.empty()||value.size()>20||value.find_first_not_of(L"0123456789")!=value.npos){error=L"Enter the numeric GOG game ID from its shortcut or goggame file.";return false;}
         if(folder.find_first_of(L"\"\r\n")!=folder.npos){error=L"The game folder contains an invalid character.";return false;}
-        next.arguments=L"/command=runGame /gameId="+value;if(!folder.empty()){auto quoted=folder;for(size_t at=folder.size();at>0&&folder[at-1]==L'\\';--at)quoted+=L'\\';next.arguments+=L" /path=\""+quoted+L"\"";}
+        next.arguments=L"/command=runGame /gameId="+value;if(!folder.empty())next.arguments+=L" /path="+quotedFolder();
+    }else if(kind==LauncherKind::Ubisoft){
+        auto uri=value;if(!IsUbisoftLaunchUri(uri)){if(value.empty()||value.size()>20||value.find_first_not_of(L"0123456789")!=value.npos){error=L"Enter the numeric Ubisoft game ID or its uplay://launch/ link from the game's shortcut.";return false;}uri=L"uplay://launch/"+value;}next={uri,L"",L"",false};
+    }else if(kind==LauncherKind::Rockstar){
+        if(!folderValid()){error=L"Choose the game's installation folder for Rockstar Games Launcher.";return false;}if(!value.empty()){error=L"Rockstar uses the game folder; extra launch arguments are not needed here.";return false;}next.arguments=L"-launchTitleInFolder "+quotedFolder();
+    }else if(kind!=LauncherKind::Custom){error=L"Choose a supported launcher preset.";return false;
     }
     target=std::move(next);return true;
 }
@@ -196,7 +219,7 @@ Library Discover(){
     std::sort(lib.games.begin(),lib.games.end(),[](const Game&a,const Game&b){return a.store==b.store?elka::Key(a.name)<elka::Key(b.name):a.store<b.store;});return lib;
 }
 std::string Encode(const State& s){
-    std::ostringstream o;o<<"ELKA-GAMES 5\n"<<s.enabled<<' '<<s.topmost<<' '<<s.locked<<' '<<static_cast<int>(s.direction)<<' '<<s.x<<' '<<s.y<<' '<<std::quoted(ToUtf8(s.screen))<<' '<<s.toolbarVisible<<'\n';
+    std::ostringstream o;o<<"ELKA-GAMES 6\n"<<s.enabled<<' '<<s.topmost<<' '<<s.locked<<' '<<static_cast<int>(s.direction)<<' '<<s.x<<' '<<s.y<<' '<<std::quoted(ToUtf8(s.screen))<<' '<<s.toolbarVisible<<'\n';
     for(bool visible:s.drawerToolbarVisible)o<<visible<<' ';o<<'\n';for(auto color:s.colors)o<<color<<' ';o<<'\n';for(auto dir:s.groupDirections)o<<static_cast<int>(dir)<<' ';o<<'\n';
     for(size_t i=0;i<StoreCount;++i){const auto& entry=s.launchers[i];o<<entry.visible<<' '<<static_cast<int>(entry.kind)<<' '<<std::quoted(ToUtf8(entry.name))<<' '<<std::quoted(ToUtf8(entry.executable))<<' '<<s.backgrounds[i]<<'\n';}
     o<<s.palette.count<<' '<<s.palette.next;for(auto color:s.palette.colors)o<<' '<<color;o<<'\n';
@@ -204,13 +227,13 @@ std::string Encode(const State& s){
 }
 bool Decode(const std::string& text,State& out,std::wstring& error){try{
     if(text.size()>1024*1024)throw std::runtime_error("Size");std::istringstream in(text);std::string magic,screen;int version=0,e=0,t=0,l=0,d=0;State s;
-    if(!(in>>magic>>version)||magic!="ELKA-GAMES"||version<1||version>5)throw std::runtime_error("Version");
+    if(!(in>>magic>>version)||magic!="ELKA-GAMES"||version<1||version>6)throw std::runtime_error("Version");
     if(!(in>>e>>t>>l>>d>>s.x>>s.y>>std::quoted(screen))||(e&~1)||(t&~1)||(l&~1)||d<0||d>3||s.x< -1||s.y< -1||s.x>100000||s.y>100000)throw std::runtime_error("Options");s.enabled=e!=0;s.topmost=t!=0;s.locked=l!=0;s.direction=static_cast<Direction>(d);s.screen=FromUtf8(screen);
     auto boolean=[&](){int value=0;if(!(in>>value)||(value&~1))throw std::runtime_error("Boolean");return value!=0;};
     auto color=[&](){unsigned long value=0;if(!(in>>value)||value>0xffffff)throw std::runtime_error("Color");return static_cast<COLORREF>(value);};
     size_t slots=version>=4?StoreCount:4;if(version>=2)s.toolbarVisible=boolean();if(version>=3){for(size_t i=0;i<slots;++i)s.drawerToolbarVisible[i]=boolean();for(size_t i=0;i<slots;++i)s.colors[i]=color();}
     for(size_t i=0;i<slots;++i){if(!(in>>d)||d<0||d>3)throw std::runtime_error("Direction");auto dir=static_cast<Direction>(d);s.groupDirections[i]=Allowed(s.direction,dir)?dir:s.direction;}for(size_t i=slots;i<StoreCount;++i)s.groupDirections[i]=s.direction;
-    if(version>=4)for(size_t i=0;i<StoreCount;++i){auto& entry=s.launchers[i];entry.visible=boolean();int kind=0;std::string name,path;if(!(in>>kind>>std::quoted(name)>>std::quoted(path))||kind<0||kind>2||name.size()>240||path.size()>32000)throw std::runtime_error("Launcher");entry.kind=static_cast<LauncherKind>(kind);entry.name=FromUtf8(name);entry.executable=FromUtf8(path);s.backgrounds[i]=color();if((i<3||entry.visible)&&entry.name.empty())throw std::runtime_error("Launcher name");}
+    if(version>=4)for(size_t i=0;i<StoreCount;++i){auto& entry=s.launchers[i];entry.visible=boolean();int kind=0;std::string name,path;if(!(in>>kind>>std::quoted(name)>>std::quoted(path))||kind<0||kind>=(version>=6?LauncherKindCount:3)||name.size()>240||path.size()>32000)throw std::runtime_error("Launcher");entry.kind=static_cast<LauncherKind>(kind);entry.name=FromUtf8(name);entry.executable=FromUtf8(path);s.backgrounds[i]=color();if((i<3||entry.visible)&&entry.name.empty())throw std::runtime_error("Launcher name");}
     if(version>=5){if(!(in>>s.palette.count>>s.palette.next)||s.palette.count<0||s.palette.count>8||s.palette.next<0||s.palette.next>7)throw std::runtime_error("Palette");for(auto& saved:s.palette.colors)saved=color();}
     size_t count=0;if(!(in>>count)||count>5000)throw std::runtime_error("Favorites");for(size_t i=0;i<count;++i){std::string f;if(!(in>>std::quoted(f))||f.empty()||f.size()>256)throw std::runtime_error("Favorite");s.favorites.insert(FromUtf8(f));}
     if(!(in>>count)||count>1000)throw std::runtime_error("Custom games");std::set<std::wstring> keys;for(size_t i=0;i<count;++i){Game g;int store=0;std::string id,name,path,args,folder;if(!(in>>store>>std::quoted(id)>>std::quoted(name)>>std::quoted(path)>>std::quoted(args))||store<0||store>=static_cast<int>(slots)||id.empty()||id.size()>128||name.empty()||name.size()>512||path.empty()||path.size()>32000||args.size()>16000)throw std::runtime_error("Game");if(version>=4&&(!(in>>std::quoted(folder))||folder.size()>32000))throw std::runtime_error("Folder");g.store=static_cast<Store>(store);g.id=FromUtf8(id);g.name=FromUtf8(name);g.folder=FromUtf8(folder);g.target={FromUtf8(path),FromUtf8(args),L"",false};if(!keys.insert(g.Key()).second)throw std::runtime_error("Duplicate game");if(version<4&&store==3)s.launchers[3].visible=true;if(s.launchers[store].name.empty())throw std::runtime_error("Missing launcher");s.custom.push_back(std::move(g));}

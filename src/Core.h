@@ -36,6 +36,8 @@ std::string Serialize(const Settings& settings);
 bool Deserialize(const std::string& text, Settings& settings, std::wstring& error);
 std::wstring Validate(const Settings& settings);
 bool IsEpicLaunchUri(const std::wstring& value);
+bool IsUbisoftLaunchUri(const std::wstring& value);
+bool IsGameLaunchUri(const std::wstring& value);
 
 // A profile fires once per continuous running session. Keep state across edits
 // and pause/resume; a new trigger or a disable/enable explicitly rearms it.

@@ -8,7 +8,8 @@ enum class Store { Steam, EA, BattleNet, Other };
 enum class Direction { Down, Up, Left, Right };
 constexpr size_t StoreCount = 10;
 constexpr int BuiltinCount = 3;
-enum class LauncherKind { Custom, Epic, Gog };
+enum class LauncherKind { Custom, Epic, Gog, Ubisoft, Rockstar };
+constexpr int LauncherKindCount=5;
 struct LauncherEntry { std::wstring name, executable; LauncherKind kind=LauncherKind::Custom; bool visible=false; };
 struct SavedColors { std::array<COLORREF,8> colors{}; int count=0,next=0; };
 struct Game {
