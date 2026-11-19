@@ -127,8 +127,8 @@ std::vector<Process> Processes(bool allPaths,const Settings* filter,bool* succes
     if(allPaths)std::sort(result.begin(),result.end(),[](const auto& a,const auto& b){return Key(a.name)<Key(b.name);});return result;
 }
 bool Launch(const Target& t,DWORD& pid,std::wstring& error){
-    pid=0;if(!IsExe(t.path)){error=L"EXE not found: "+t.path;return false;}
-    auto dir=t.directory.empty()?Parent(t.path):t.directory;
+    pid=0;bool protocol=IsEpicLaunchUri(t.path);if(protocol&&(!t.arguments.empty()||!t.directory.empty())){error=L"Epic launch links do not accept extra arguments or a working folder.";return false;}if(!protocol&&!IsExe(t.path)){error=L"EXE not found: "+t.path;return false;}
+    auto dir=protocol?L"":t.directory.empty()?Parent(t.path):t.directory;
     SHELLEXECUTEINFOW info{sizeof(info)};info.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_NOASYNC|SEE_MASK_FLAG_NO_UI;info.lpVerb=L"open";info.lpFile=t.path.c_str();info.lpParameters=t.arguments.empty()?nullptr:t.arguments.c_str();info.lpDirectory=dir.empty()?nullptr:dir.c_str();info.nShow=SW_SHOWNORMAL;
     if(!ShellExecuteExW(&info)){error=ErrorText(GetLastError());return false;}
     if(info.hProcess){pid=GetProcessId(info.hProcess);CloseHandle(info.hProcess);}return true;

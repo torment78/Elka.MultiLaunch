@@ -6,7 +6,11 @@
 namespace elka::games {
 enum class Store { Steam, EA, BattleNet, Other };
 enum class Direction { Down, Up, Left, Right };
-constexpr size_t StoreCount = 4;
+constexpr size_t StoreCount = 10;
+constexpr int BuiltinCount = 3;
+enum class LauncherKind { Custom, Epic, Gog };
+struct LauncherEntry { std::wstring name, executable; LauncherKind kind=LauncherKind::Custom; bool visible=false; };
+struct SavedColors { std::array<COLORREF,8> colors{}; int count=0,next=0; };
 struct Game {
     Store store = Store::Steam;
     std::wstring id, name, folder;
@@ -31,8 +35,19 @@ struct State {
     bool toolbarVisible = true;
     std::array<bool, StoreCount> drawerToolbarVisible{true,true,true,true};
     std::array<COLORREF, StoreCount> colors{RGB(100,181,246),RGB(255,144,102),RGB(103,152,255),RGB(77,218,191)};
+    std::array<COLORREF, StoreCount> backgrounds{};
+    std::array<LauncherEntry, StoreCount> launchers;
+    SavedColors palette;
+    State();
 };
 const wchar_t* StoreName(Store store);
+std::wstring LauncherName(const State& state,int index);
+std::vector<int> VisibleLaunchers(const State& state);
+struct DockMetrics { int columns=3,width=438,height=160,tileTop=50; std::vector<RECT> buttons; };
+DockMetrics LayoutDock(int visibleCount,int availableWidth,bool toolbar);
+const wchar_t* LauncherKindName(LauncherKind kind);
+std::wstring FindLauncher(LauncherKind kind);
+bool ManualTarget(LauncherKind kind,const std::wstring& executable,const std::wstring& value,const std::wstring& folder,Target& target,std::wstring& error);
 const wchar_t* DirectionName(Direction direction);
 bool Allowed(Direction primary, Direction secondary);
 struct Placement { RECT bounds{}; int columns = 1, rows = 1, capacity = 1; std::vector<POINT> cells; };

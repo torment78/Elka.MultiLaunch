@@ -54,6 +54,13 @@ std::string Serialize(const Settings& s) {
     }
     return r;
 }
+bool IsEpicLaunchUri(const std::wstring& value){
+    const std::wstring prefix=L"com.epicgames.launcher://apps/",suffix=L"?action=launch&silent=true";
+    if(value.size()>4096||value.size()<=prefix.size()+suffix.size()||value.compare(0,prefix.size(),prefix)!=0||value.compare(value.size()-suffix.size(),suffix.size(),suffix)!=0)return false;
+    auto id=value.substr(prefix.size(),value.size()-prefix.size()-suffix.size());
+    for(size_t i=0;i<id.size();++i){auto c=id[i];if(c==L'%'){if(i+2>=id.size()||!iswxdigit(id[i+1])||!iswxdigit(id[i+2]))return false;i+=2;}else if(!((c>=L'a'&&c<=L'z')||(c>=L'A'&&c<=L'Z')||(c>=L'0'&&c<=L'9')||c==L'-'||c==L'_'||c==L'.'||c==L':'))return false;}
+    return true;
+}
 std::wstring Validate(const Settings& s) {
     if(s.passive&&!s.runAsAdmin)return L"Passive mode requires Run as administrator.";
     if (s.profiles.size() > MaxProfiles) return L"You can save up to ten profiles.";
